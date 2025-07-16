@@ -166,7 +166,6 @@ class CellularTableDetector:
 
         return small, inside, mask, debug
 
- 
     def quadFromInside2(self, inside: np.ndarray) -> np.ndarray:
         """
         Given a binary grid `inside` of shape (rows, cols) and the cellSize in pixels,
@@ -177,7 +176,9 @@ class CellularTableDetector:
         if len(xs) == 0:
             return None
 
-        centers = np.stack([(xs + 0.5) * self.cellSize, (ys + 0.5) * self.cellSize], axis=1).astype(np.float32)
+        centers = np.stack(
+            [(xs + 0.5) * self.cellSize, (ys + 0.5) * self.cellSize], axis=1
+        ).astype(np.float32)
 
         # 2. Convex hull
         hull = cv2.convexHull(centers)
@@ -215,7 +216,7 @@ class CellularTableDetector:
         ctrs = np.stack(
             [(xs + 0.5) * self.cellSize, (ys + 0.5) * self.cellSize], axis=1
         ).astype(np.float32)
-        
+
         # -- Top-left: closest to (0, 0)
         targetTL = np.array([0, 0], dtype=np.float32)
         dist2TL = np.sum((ctrs - targetTL) ** 2, axis=1)
@@ -319,31 +320,30 @@ def orderQuad(pts):
     angles = np.arctan2(pts[:, 1] - c[1], pts[:, 0] - c[0])  # angle w.r.t. +x axis
     return pts[np.argsort(angles)]
 
+
 def warpTable(bgrImg, quad, imagePath, outW=640, rotate=True):
     h0, w0 = bgrImg.shape[:2]
 
     # ---- 2 : 1 landscape canvas -------------------------------------------
     outH = int(2 * outW)
-    dst  = np.array([[0, 0],
-                     [outW - 1, 0],
-                     [outW - 1, outH - 1],
-                     [0, outH - 1]], np.float32)
+    dst = np.array(
+        [[0, 0], [outW - 1, 0], [outW - 1, outH - 1], [0, outH - 1]], np.float32
+    )
 
     Hpersp = cv2.getPerspectiveTransform(quad, dst)
 
-    if not rotate:                       # 2 : 1 landscape
+    if not rotate:  # 2 : 1 landscape
         warp = cv2.warpPerspective(bgrImg, Hpersp, (outW, outH))
         cv2.imwrite(imagePath, warp)
-        return warp, Hpersp, (outW, outH)   # <-- return size tuple too
+        return warp, Hpersp, (outW, outH)  # <-- return size tuple too
 
     # ---- embed 90 ° CCW rotation ------------------------------------------
-    rot  = np.array([[0, 1, 0],
-                     [-1, 0, outW - 1],
-                     [0, 0, 1]], np.float32)
-    Htot = rot @ Hpersp                 # original → portrait canvas
+    rot = np.array([[0, 1, 0], [-1, 0, outW - 1], [0, 0, 1]], np.float32)
+    Htot = rot @ Hpersp  # original → portrait canvas
     warp = cv2.warpPerspective(bgrImg, Htot, (outH, outW))
     cv2.imwrite(imagePath, warp)
-    return warp, Htot, (outH, outW) 
+    return warp, Htot, (outH, outW)
+
 
 def main():
 
@@ -353,7 +353,7 @@ def main():
     else:
         sys.exit(1)
 
-    image = None # "../../pix2pockets/8-Ball-Pool-3/train/images/11f_png.rf.eb0169eccfb6b264a582491457ff37b6.jpg"
+    image = None  # "../../pix2pockets/8-Ball-Pool-3/train/images/11f_png.rf.eb0169eccfb6b264a582491457ff37b6.jpg"
     if not image:
         for image in glob.glob(f"{imageDir}/*.jpg"):
             runDetect(image)
@@ -362,7 +362,7 @@ def main():
 
 
 def runDetect(imagePath):
-    print("-"*100)
+    print("-" * 100)
     print(f"Detecting for {imagePath}...")
     img = cv2.imread(imagePath)
     det = CellularTableDetector(
@@ -390,12 +390,14 @@ def runDetect(imagePath):
 
         small_path = "/tmp/small.jpg"
         cv2.imwrite(small_path, small)
-        
+
         warp_path = "/tmp/warp.jpg"
-        warpImg, Htot, warpSize = warpTable(small, orderQuad(quad), warp_path, rotate=False)
-        
+        warpImg, Htot, warpSize = warpTable(
+            small, orderQuad(quad), warp_path, rotate=False
+        )
+
         getBalls(small_path, warpImg, Htot, warpSize)
-        
+
     else:
         vis = debug.copy()
         h, w = vis.shape[:2]
@@ -412,7 +414,7 @@ def runDetect(imagePath):
         # vis = debug.copy()
         # plt.imshow(cv2.cvtColor(vis, cv2.COLOR_BGR2RGB))
         print("NO QUAD FOUND!")
-    print("-"*100)
+    print("-" * 100)
 
 
 def getBalls(origImgPath, warpImg, H, warpSize):
@@ -423,10 +425,12 @@ def getBalls(origImgPath, warpImg, H, warpSize):
     warpSize    : (W, H) of warpImg
     """
     modelPath = "/Users/uzbit/Documents/projects/pix2pockets/detection_model_weight/detection_model.pt"
-    model     = load_detection_model(modelPath)
+    model = load_detection_model(modelPath)
 
     # ---------- run detector on ORIGINAL frame ------------------------------
-    origBgr, dets = get_detection(origImgPath, model, post_process=True, conf_thresh=0.2)
+    origBgr, dets = get_detection(
+        origImgPath, model, post_process=True, conf_thresh=0.2
+    )
 
     # keep only balls
     balls = dets[dets[:, 5] != 4]
@@ -435,24 +439,22 @@ def getBalls(origImgPath, warpImg, H, warpSize):
         return
 
     # ---------- centres in original-pixel space -----------------------------
-    ballCenters, ballClasses = getBallInfo(balls, H=None)   # returns Nx2 + classes
+    ballCenters, ballClasses = getBallInfo(balls, H=None)  # returns Nx2 + classes
 
     # ---------- project into warp space -------------------------------------
     pts = np.asarray(ballCenters, np.float32).reshape(-1, 1, 2)
     warpedPts = cv2.perspectiveTransform(pts, H).reshape(-1, 2)
 
-
     print(ballCenters)
     print(warpedPts)
 
     # ---------- draw on the *warp* image (RGB) ------------------------------
-    warpRgb  = cv2.cvtColor(warpImg, cv2.COLOR_BGR2RGB)
-    overlay  = drawBallOverlays(warpRgb, warpedPts, ballClasses, radius=14)
+    warpRgb = cv2.cvtColor(warpImg, cv2.COLOR_BGR2RGB)
+    overlay = drawBallOverlays(warpRgb, warpedPts, ballClasses, radius=14)
 
     cv2.imshow("Balls on warp", cv2.cvtColor(overlay, cv2.COLOR_RGB2BGR))
     cv2.waitKey(0)
     cv2.destroyAllWindows()
-
 
 
 if __name__ == "__main__":
