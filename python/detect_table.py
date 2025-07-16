@@ -319,50 +319,31 @@ def orderQuad(pts):
     angles = np.arctan2(pts[:, 1] - c[1], pts[:, 0] - c[0])  # angle w.r.t. +x axis
     return pts[np.argsort(angles)]
 
-
-def warpTable(bgrImg, quad, imagePath, outW=640, rotate=False):
-    """
-    Parameters
-    ----------
-    bgrImg     : original frame (OpenCV BGR)
-    quad       : 4×2 float32 source points [BL, TL, BR, TR] or similar
-    imagePath  : file path to save the warped image
-    outW       : width of the first-stage warp
-    rotate     : if True, output is rotated 90° CCW and H includes that rotation
-
-    Returns
-    -------
-    warpImg : the perspective-corrected (and optionally rotated) image
-    H       : 3×3 homography from original frame → final warpImg
-    """
-    # --- stage-1: perspective warp to fixed 2:1 (landscape) canvas ----------
+def warpTable(bgrImg, quad, imagePath, outW=640, rotate=True):
     h0, w0 = bgrImg.shape[:2]
-    outH = int(2 * outW)            # 2 : 1 aspect for table cloth
-    dst   = np.array([[0, 0],
-                      [outW - 1, 0],
-                      [outW - 1, outH - 1],
-                      [0, outH - 1]], dtype=np.float32)
 
-    H_persp = cv2.getPerspectiveTransform(quad, dst)
+    # ---- 2 : 1 landscape canvas -------------------------------------------
+    outH = int(2 * outW)
+    dst  = np.array([[0, 0],
+                     [outW - 1, 0],
+                     [outW - 1, outH - 1],
+                     [0, outH - 1]], np.float32)
 
-    if not rotate:
-        warpImg = cv2.warpPerspective(bgrImg, H_persp, (outW, outH))
-        cv2.imwrite(imagePath, warpImg)
-        return warpImg, H_persp
+    Hpersp = cv2.getPerspectiveTransform(quad, dst)
 
-    # --- stage-2: embed 90° CCW rotation into the homography ----------------
-    # Rotation about the top-left of the perspective image.
-    rot = np.array([[0,  1,           0],          # x' =  y
-                    [-1, 0,  outW - 1],            # y' = -x + (W-1)
-                    [0,  0,           1]], dtype=np.float32)
+    if not rotate:                       # 2 : 1 landscape
+        warp = cv2.warpPerspective(bgrImg, Hpersp, (outW, outH))
+        cv2.imwrite(imagePath, warp)
+        return warp, Hpersp, (outW, outH)   # <-- return size tuple too
 
-    H_total = rot @ H_persp     # original → persp → rotate90
-
-    # Output canvas size swaps (width, height) → (outH, outW)
-    warpImg = cv2.warpPerspective(bgrImg, H_total, (outH, outW))
-
-    cv2.imwrite(imagePath, warpImg)
-    return warpImg, H_total
+    # ---- embed 90 ° CCW rotation ------------------------------------------
+    rot  = np.array([[0, 1, 0],
+                     [-1, 0, outW - 1],
+                     [0, 0, 1]], np.float32)
+    Htot = rot @ Hpersp                 # original → portrait canvas
+    warp = cv2.warpPerspective(bgrImg, Htot, (outH, outW))
+    cv2.imwrite(imagePath, warp)
+    return warp, Htot, (outH, outW) 
 
 def main():
 
@@ -385,7 +366,7 @@ def runDetect(imagePath):
     print(f"Detecting for {imagePath}...")
     img = cv2.imread(imagePath)
     det = CellularTableDetector(
-        resizeHeight=1200, cellSize=5, deltaEThreshold=15
+        resizeHeight=2400, cellSize=5, deltaEThreshold=15
     )  # tweak threshold ↔ lighting
 
     small, inside, mask, debug = det.detect(img)
@@ -407,9 +388,13 @@ def runDetect(imagePath):
         cv2.waitKey(0)
         cv2.destroyAllWindows()
 
-        warp = "warp90.jpg"
-        img, M = warpTable(small, orderQuad(quad), warp)
-        getBalls(imagePath, img, M)
+        small_path = "/tmp/small.jpg"
+        cv2.imwrite(small_path, small)
+        
+        warp_path = "/tmp/warp.jpg"
+        warpImg, Htot, warpSize = warpTable(small, orderQuad(quad), warp_path, rotate=False)
+        
+        getBalls(small_path, warpImg, Htot, warpSize)
         
     else:
         vis = debug.copy()
@@ -428,50 +413,47 @@ def runDetect(imagePath):
         # plt.imshow(cv2.cvtColor(vis, cv2.COLOR_BGR2RGB))
         print("NO QUAD FOUND!")
     print("-"*100)
-    
 
-def getBalls(imgPath, warpImg, H):
-    
 
-    model_path = "/Users/uzbit/Documents/projects/pix2pockets/detection_model_weight/detection_model.pt"
-    detection_model = load_detection_model(model_path)
+def getBalls(origImgPath, warpImg, H, warpSize):
+    """
+    origImgPath : original full-frame image path
+    warpImg     : portrait or landscape cloth image from warpTable
+    H           : homography original → warpImg (already includes rotation)
+    warpSize    : (W, H) of warpImg
+    """
+    modelPath = "/Users/uzbit/Documents/projects/pix2pockets/detection_model_weight/detection_model.pt"
+    model     = load_detection_model(modelPath)
 
-    image, detections = get_detection(
-        im_path=imgPath, model=detection_model, post_process=True, conf_thresh=0.2
-    )
-    
-    # Filter out class 4 (assumed: pocket class)
-    ball_data = detections[detections[:, 5] != 4]
+    # ---------- run detector on ORIGINAL frame ------------------------------
+    origBgr, dets = get_detection(origImgPath, model, post_process=True, conf_thresh=0.2)
 
-    # Ball center positions and class IDs in original image space
-    ballCenters, ballClasses = getBallInfo(ball_data, H=None)
-
-    if len(ballCenters) == 0:
-        print("No balls detected.")
+    # keep only balls
+    balls = dets[dets[:, 5] != 4]
+    if balls.size == 0:
+        print("No balls.")
         return
-    
-    vis = drawBallOverlays(image, ballCenters, ballClasses)
-    cv2.imshow("Ball Overlay", vis)
+
+    # ---------- centres in original-pixel space -----------------------------
+    ballCenters, ballClasses = getBallInfo(balls, H=None)   # returns Nx2 + classes
+
+    # ---------- project into warp space -------------------------------------
+    pts = np.asarray(ballCenters, np.float32).reshape(-1, 1, 2)
+    warpedPts = cv2.perspectiveTransform(pts, H).reshape(-1, 2)
+
+
+    print(ballCenters)
+    print(warpedPts)
+
+    # ---------- draw on the *warp* image (RGB) ------------------------------
+    warpRgb  = cv2.cvtColor(warpImg, cv2.COLOR_BGR2RGB)
+    overlay  = drawBallOverlays(warpRgb, warpedPts, ballClasses, radius=14)
+
+    cv2.imshow("Balls on warp", cv2.cvtColor(overlay, cv2.COLOR_RGB2BGR))
     cv2.waitKey(0)
     cv2.destroyAllWindows()
 
 
-    # Convert to homography format and apply to ball centers
-    ballCentersNp = np.array(ballCenters, dtype=np.float32).reshape(-1, 1, 2)
-    warpedCenters = cv2.perspectiveTransform(ballCentersNp, H).reshape(-1, 2)
-
-    print("^"*50 + "WARP BALL INFO" + "^"*50 )
-    # print(ballCentersNp)
-    print(warpedCenters)
-    print("^"*50 + "WARP BALL INFO" + "^"*50 )
-    
-    # Draw on the warped image
-    vis = drawBallOverlays(warpImg, warpedCenters, ballClasses)
-
-    cv2.imshow("Ball Overlay (Warped)", vis)
-    cv2.waitKey(0)
-    cv2.destroyAllWindows()    # cv2.imshow("Red X", image)
-   
 
 if __name__ == "__main__":
     main()
