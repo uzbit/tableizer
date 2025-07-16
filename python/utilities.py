@@ -8,32 +8,34 @@ from matplotlib import pyplot as plt
 
 
 def getBallInfo(ball_data, H):
-
-    tform = transform.ProjectiveTransform(H)
-
+    #print(H)
+    # tform = transform.ProjectiveTransform(H)
+    #print(tform)
     ball_centers = np.array([[b[0], b[1]] for b in ball_data])
     ball_classes = ball_data[:, -1]
 
-    ball_H = tform(ball_centers)
-    classcolors = [(0, 0, 1), (0, 1, 0), (1, 0, 0), (0, 1, 1)]
-    ballsize = 140
-
-    fig3, ax3 = plt.subplots(1, 1, figsize=(10, 10))
+    # ball_H = tform(ball_centers)
+    #print(ball_H)
+    print("*"*50 + "ORIG BALL INFO" + "*"*50 )
     print(ball_centers)
     print(ball_classes)
-
-    for ball in range(len(ball_centers)):  # facecolors='none', edgecolors
-        ax3.scatter(
-            ball_H[ball, 0],
-            ball_H[ball, 1],
-            s=ballsize,
-            facecolors="none",
-            edgecolors=classcolors[int(ball_classes[ball])],
-        )
-    plt.show()
-    plt.waitforbuttonpress()
+    print("*"*50 + "ORIG BALL INFO" + "*"*50 )
     return ball_centers, ball_classes
 
+
+def drawBallOverlays(imgBgr, ballCenters, ballClasses, radius=12):
+    vis = imgBgr.copy()
+
+    for (x, y), cls in zip(ballCenters, ballClasses):
+        color = (0, 255, 0) if cls == 1 else (0, 0, 255)  # Green for class 1, Red for class 0
+        center = (int(round(x)), int(round(y)))
+        cv2.circle(vis, center, radius, color, 2)  # thickness 2
+
+        # Optional: label
+        cv2.putText(vis, f"{cls}", (center[0] + 8, center[1] - 8),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2, cv2.LINE_AA)
+    
+    return vis
 
 def bb_IoU(bboxA, bboxB):
     """

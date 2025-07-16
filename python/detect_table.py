@@ -7,7 +7,12 @@ import random
 import numpy as np
 from math import atan2, cos, degrees, exp, radians, sin, sqrt
 import sys
-
+from utilities import (
+    load_detection_model,
+    get_detection,
+    getBallInfo,
+    drawBallOverlays,
+)
 
 # from auxillary.RL_usedirectly import load_RL_no_env
 # from auxillary.mapping import HomographyMapping
@@ -161,6 +166,38 @@ class CellularTableDetector:
 
         return small, inside, mask, debug
 
+ 
+    def quadFromInside2(self, inside: np.ndarray) -> np.ndarray:
+        """
+        Given a binary grid `inside` of shape (rows, cols) and the cellSize in pixels,
+        return the best-fit quadrilateral [BL, TL, BR, TR] as a 4x2 float32 array.
+        """
+        # 1. Get pixel coordinates of cell centers
+        ys, xs = np.where(inside)
+        if len(xs) == 0:
+            return None
+
+        centers = np.stack([(xs + 0.5) * self.cellSize, (ys + 0.5) * self.cellSize], axis=1).astype(np.float32)
+
+        # 2. Convex hull
+        hull = cv2.convexHull(centers)
+
+        # 3. Approximate hull with a quadrilateral
+        epsilon = 0.02 * cv2.arcLength(hull, True)
+        approx = cv2.approxPolyDP(hull, epsilon, True)
+
+        # 4. Handle edge cases
+        if len(approx) != 4:
+            # fallback to minimum area rectangle
+            rect = cv2.minAreaRect(centers)
+            box = cv2.boxPoints(rect)
+            quad = box.astype(np.float32)
+        else:
+            quad = approx.reshape(4, 2).astype(np.float32)
+
+        # 5. Order quad as [BL, TL, BR, TR] (optional, if needed)
+        return orderQuad(quad)
+
     def quadFromInside(self, inside: np.ndarray, width, height):
         """
         Return the 4 × 2 float32 array [BL, TL, BR, TR] taken from the most
@@ -178,8 +215,7 @@ class CellularTableDetector:
         ctrs = np.stack(
             [(xs + 0.5) * self.cellSize, (ys + 0.5) * self.cellSize], axis=1
         ).astype(np.float32)
-        print(ctrs)
-
+        
         # -- Top-left: closest to (0, 0)
         targetTL = np.array([0, 0], dtype=np.float32)
         dist2TL = np.sum((ctrs - targetTL) ** 2, axis=1)
@@ -284,26 +320,49 @@ def orderQuad(pts):
     return pts[np.argsort(angles)]
 
 
-def warpTable(bgrImg, quad, outW=400):
-    h, w = bgrImg.shape[:2]
+def warpTable(bgrImg, quad, imagePath, outW=640, rotate=False):
+    """
+    Parameters
+    ----------
+    bgrImg     : original frame (OpenCV BGR)
+    quad       : 4×2 float32 source points [BL, TL, BR, TR] or similar
+    imagePath  : file path to save the warped image
+    outW       : width of the first-stage warp
+    rotate     : if True, output is rotated 90° CCW and H includes that rotation
 
-    if h > w:
-        outH = int(2 * outW)  # 2:1 aspect
-    else:
-        outH = int(outW) // 2
+    Returns
+    -------
+    warpImg : the perspective-corrected (and optionally rotated) image
+    H       : 3×3 homography from original frame → final warpImg
+    """
+    # --- stage-1: perspective warp to fixed 2:1 (landscape) canvas ----------
+    h0, w0 = bgrImg.shape[:2]
+    outH = int(2 * outW)            # 2 : 1 aspect for table cloth
+    dst   = np.array([[0, 0],
+                      [outW - 1, 0],
+                      [outW - 1, outH - 1],
+                      [0, outH - 1]], dtype=np.float32)
 
-    dst = np.array(
-        [[0, 0], [outW - 1, 0], [outW - 1, outH - 1], [0, outH - 1]], dtype=np.float32
-    )
-    M = cv2.getPerspectiveTransform(quad, dst)
-    warp = cv2.warpPerspective(bgrImg, M, (outW, outH))
-    warp90 = cv2.rotate(warp, cv2.ROTATE_90_COUNTERCLOCKWISE)
-    cv2.imshow("Top-down Warp", warp)
-    cv2.imwrite("warp.jpg", warp)
-    cv2.waitKey(0)
-    cv2.destroyAllWindows()
-    return warp90, M
+    H_persp = cv2.getPerspectiveTransform(quad, dst)
 
+    if not rotate:
+        warpImg = cv2.warpPerspective(bgrImg, H_persp, (outW, outH))
+        cv2.imwrite(imagePath, warpImg)
+        return warpImg, H_persp
+
+    # --- stage-2: embed 90° CCW rotation into the homography ----------------
+    # Rotation about the top-left of the perspective image.
+    rot = np.array([[0,  1,           0],          # x' =  y
+                    [-1, 0,  outW - 1],            # y' = -x + (W-1)
+                    [0,  0,           1]], dtype=np.float32)
+
+    H_total = rot @ H_persp     # original → persp → rotate90
+
+    # Output canvas size swaps (width, height) → (outH, outW)
+    warpImg = cv2.warpPerspective(bgrImg, H_total, (outH, outW))
+
+    cv2.imwrite(imagePath, warpImg)
+    return warpImg, H_total
 
 def main():
 
@@ -313,15 +372,20 @@ def main():
     else:
         sys.exit(1)
 
-    for image in glob.glob(f"{imageDir}/*.jpg"):
+    image = None # "../../pix2pockets/8-Ball-Pool-3/train/images/11f_png.rf.eb0169eccfb6b264a582491457ff37b6.jpg"
+    if not image:
+        for image in glob.glob(f"{imageDir}/*.jpg"):
+            runDetect(image)
+    else:
         runDetect(image)
 
 
 def runDetect(imagePath):
-
+    print("-"*100)
+    print(f"Detecting for {imagePath}...")
     img = cv2.imread(imagePath)
     det = CellularTableDetector(
-        resizeHeight=1000, cellSize=5, deltaEThreshold=15
+        resizeHeight=1200, cellSize=5, deltaEThreshold=15
     )  # tweak threshold ↔ lighting
 
     small, inside, mask, debug = det.detect(img)
@@ -331,6 +395,7 @@ def runDetect(imagePath):
     # plt.show()
 
     quad = det.quadFromInside(inside, img.shape[1], img.shape[0])
+    # quad = det.quadFromInside2(inside)
 
     if quad is not None:
         vis = debug.copy()
@@ -342,9 +407,10 @@ def runDetect(imagePath):
         cv2.waitKey(0)
         cv2.destroyAllWindows()
 
-        img, M = warpTable(small, orderQuad(quad))
-        getBalls("warp.jpg", M)
-
+        warp = "warp90.jpg"
+        img, M = warpTable(small, orderQuad(quad), warp)
+        getBalls(imagePath, img, M)
+        
     else:
         vis = debug.copy()
         h, w = vis.shape[:2]
@@ -361,33 +427,51 @@ def runDetect(imagePath):
         # vis = debug.copy()
         # plt.imshow(cv2.cvtColor(vis, cv2.COLOR_BGR2RGB))
         print("NO QUAD FOUND!")
+    print("-"*100)
+    
 
-
-def getBalls(img_path, H):
-    from utilities import load_detection_model, get_detection, getBallInfo
+def getBalls(imgPath, warpImg, H):
+    
 
     model_path = "/Users/uzbit/Documents/projects/pix2pockets/detection_model_weight/detection_model.pt"
     detection_model = load_detection_model(model_path)
+
     image, detections = get_detection(
-        im_path=img_path, model=detection_model, post_process=True, conf_thresh=0.2
+        im_path=imgPath, model=detection_model, post_process=True, conf_thresh=0.2
     )
-    print(detections)
+    
+    # Filter out class 4 (assumed: pocket class)
     ball_data = detections[detections[:, 5] != 4]
-    print(ball_data)
-    getBallInfo(ball_data, H)
 
-    # cv2.imshow("Red X", image)
-    # cv2.waitKey(0)
-    # cv2.destroyAllWindows()
+    # Ball center positions and class IDs in original image space
+    ballCenters, ballClasses = getBallInfo(ball_data, H=None)
 
-    RL_model_path = "Oracle"
-    # for oracle: stripes=1, solid=2, black=4
-    # RL_model = load_RL_no_env(RL_model_path, suit=2)
-    # Object = HomographyMapping(detections=detections, im=image, savepath=Path("save"))
-    # Object.plot_warped()
-    # Object.RL_predict(RL_model)
-    # Object.plot_RL_arrow(save=True,plot_warped=False)
+    if len(ballCenters) == 0:
+        print("No balls detected.")
+        return
+    
+    vis = drawBallOverlays(image, ballCenters, ballClasses)
+    cv2.imshow("Ball Overlay", vis)
+    cv2.waitKey(0)
+    cv2.destroyAllWindows()
 
+
+    # Convert to homography format and apply to ball centers
+    ballCentersNp = np.array(ballCenters, dtype=np.float32).reshape(-1, 1, 2)
+    warpedCenters = cv2.perspectiveTransform(ballCentersNp, H).reshape(-1, 2)
+
+    print("^"*50 + "WARP BALL INFO" + "^"*50 )
+    # print(ballCentersNp)
+    print(warpedCenters)
+    print("^"*50 + "WARP BALL INFO" + "^"*50 )
+    
+    # Draw on the warped image
+    vis = drawBallOverlays(warpImg, warpedCenters, ballClasses)
+
+    cv2.imshow("Ball Overlay (Warped)", vis)
+    cv2.waitKey(0)
+    cv2.destroyAllWindows()    # cv2.imshow("Red X", image)
+   
 
 if __name__ == "__main__":
     main()
