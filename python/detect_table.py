@@ -8,6 +8,7 @@ import numpy as np
 from math import atan2, cos, degrees, exp, radians, sin, sqrt
 import sys
 
+
 # from auxillary.RL_usedirectly import load_RL_no_env
 # from auxillary.mapping import HomographyMapping
 
@@ -178,7 +179,7 @@ class CellularTableDetector:
             [(xs + 0.5) * self.cellSize, (ys + 0.5) * self.cellSize], axis=1
         ).astype(np.float32)
         print(ctrs)
-        
+
         # -- Top-left: closest to (0, 0)
         targetTL = np.array([0, 0], dtype=np.float32)
         dist2TL = np.sum((ctrs - targetTL) ** 2, axis=1)
@@ -192,7 +193,7 @@ class CellularTableDetector:
         txr, tyr = ctrs[idxTR]
         ty = min(ctrs[:, 1])
         print(idxTR, dist2TR[idxTR], txr, ctrs[idxTR])
-        
+
         leftIdx = np.argmin(ctrs[:, 0])  # smallest x
         rightIdx = np.argmax(ctrs[:, 0])  # largest x
         byl = ctrs[leftIdx, 1]
@@ -301,7 +302,7 @@ def warpTable(bgrImg, quad, outW=400):
     cv2.imwrite("warp.jpg", warp)
     cv2.waitKey(0)
     cv2.destroyAllWindows()
-    return warp90
+    return warp90, M
 
 
 def main():
@@ -341,7 +342,9 @@ def runDetect(imagePath):
         cv2.waitKey(0)
         cv2.destroyAllWindows()
 
-        warpTable(small, orderQuad(quad))
+        img, M = warpTable(small, orderQuad(quad))
+        getBalls("warp.jpg", M)
+
     else:
         vis = debug.copy()
         h, w = vis.shape[:2]
@@ -360,31 +363,32 @@ def runDetect(imagePath):
         print("NO QUAD FOUND!")
 
 
-def getBalls(img_path):
-    from auxillary.detection import (
-        get_label,
-        compare_post_process,
-        load_dataset,
-        load_detection_model,
-        get_detection,
-        plot_bboxes,
-    )
+def getBalls(img_path, H):
+    from utilities import load_detection_model, get_detection, getBallInfo
 
-    model_path = "detection_model_weight/detection_model.pt"
+    model_path = "/Users/uzbit/Documents/projects/pix2pockets/detection_model_weight/detection_model.pt"
     detection_model = load_detection_model(model_path)
     image, detections = get_detection(
-        im_path=img_path, model=detection_model, post_process=True
+        im_path=img_path, model=detection_model, post_process=True, conf_thresh=0.2
     )
     print(detections)
+    ball_data = detections[detections[:, 5] != 4]
+    print(ball_data)
+    getBallInfo(ball_data, H)
+
+    # cv2.imshow("Red X", image)
+    # cv2.waitKey(0)
+    # cv2.destroyAllWindows()
+
     RL_model_path = "Oracle"
     # for oracle: stripes=1, solid=2, black=4
-    RL_model = load_RL_no_env(RL_model_path, suit=2)
-    Object = HomographyMapping(detections=detections, im=image, savepath=Path("save"))
-    Object.plot_warped()
+    # RL_model = load_RL_no_env(RL_model_path, suit=2)
+    # Object = HomographyMapping(detections=detections, im=image, savepath=Path("save"))
+    # Object.plot_warped()
     # Object.RL_predict(RL_model)
     # Object.plot_RL_arrow(save=True,plot_warped=False)
 
 
 if __name__ == "__main__":
     main()
-    # getBalls("warp.jpg")
+    # getBalls("warp90.jpg")
