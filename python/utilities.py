@@ -1,10 +1,8 @@
 import torch
-import os
+from pathlib import Path
 from PIL import Image
 import numpy as np
 import cv2
-from skimage import transform
-from matplotlib import pyplot as plt
 
 
 from pdf2image import convert_from_path  # uses Poppler
@@ -25,20 +23,52 @@ def pdfPageToCv2(pdfPath, page=0, dpi=300):
     return bgr
 
 
-def getBallInfo(ball_data, H):
-    # print(H)
-    # tform = transform.ProjectiveTransform(H)
-    # print(tform)
-    ball_centers = np.array([[b[0], b[1]] for b in ball_data])
-    ball_classes = ball_data[:, -1]
+ballImageBgrs = [
+    pdfPageToCv2(Path("../data/red ball.pdf")),
+    pdfPageToCv2(Path("../data/yellow ball.pdf")),
+    pdfPageToCv2(Path("../data/cue ball.pdf")),
+    pdfPageToCv2(Path("../data/black ball.pdf")),
+]
 
-    # ball_H = tform(ball_centers)
-    # print(ball_H)
-    print("*" * 50 + "ORIG BALL INFO" + "*" * 50)
-    print(ball_centers)
-    print(ball_classes)
-    print("*" * 50 + "ORIG BALL INFO" + "*" * 50)
-    return ball_centers, ball_classes
+
+def orderQuad(pts):
+    """
+    Return the four 2-D points sorted **clockwise**.
+    Works for any initial ordering (even a crossed one).
+    """
+    pts = np.asarray(pts, dtype=np.float32).reshape(4, 2)
+    c = pts.mean(axis=0)  # centroid
+    angles = np.arctan2(pts[:, 1] - c[1], pts[:, 0] - c[0])  # angle w.r.t. +x axis
+    return pts[np.argsort(angles)]
+
+
+def warpTable(bgrImg, quad, imagePath, outW=1000, rotate=False):
+    h0, w0 = bgrImg.shape[:2]
+
+    # ---- 2 : 1 landscape canvas -------------------------------------------
+    if rotate:
+        outH = int(2 * outW)
+    else:
+        outH = int(outW)
+        outW *= 2
+
+    dst = np.array(
+        [[0, 0], [outW - 1, 0], [outW - 1, outH - 1], [0, outH - 1]], np.float32
+    )
+
+    Hpersp = cv2.getPerspectiveTransform(quad, dst)
+
+    if not rotate:  # 2 : 1 landscape
+        warp = cv2.warpPerspective(bgrImg, Hpersp, (outW, outH))
+        cv2.imwrite(imagePath, warp)
+        return warp, Hpersp, (outW, outH)  # <-- return size tuple too
+
+    # ---- embed 90 ° CCW rotation ------------------------------------------
+    rot = np.array([[0, 1, 0], [-1, 0, outW - 1], [0, 0, 1]], np.float32)
+    Htot = rot @ Hpersp  # original → portrait canvas
+    warp = cv2.warpPerspective(bgrImg, Htot, (outH, outW))
+    cv2.imwrite(imagePath, warp)
+    return warp, Htot, (outH, outW)
 
 
 def drawBallOverlays(imgBgr, ballCenters, ballClasses, radius=12):
@@ -64,6 +94,67 @@ def drawBallOverlays(imgBgr, ballCenters, ballClasses, radius=12):
         )
 
     return vis
+
+
+def drawShotStudio(ballCenters, ballClasses, warpImg):
+    # --- load balls as BGR ---
+    shotStudioTable = cv2.imread(str(Path("../data/shotstudio_table_felt_only.png")))
+
+    print("Shotstudio:", shotStudioTable.shape)
+    print("warpImg:", warpImg.shape)
+
+    topRailWidth = 25
+    # leftRail, topRail = 106, 106 - topRailWidth
+    leftRail, topRail = 0, 0
+    shotStudioCenters = ballCenters + np.array([leftRail, topRail])
+
+    # Compute physical → pixel scale
+    # 7-foot: 78"
+    # 8-foot: 88"
+    # 9-foot: 100"
+    tableSize = 88
+    longEdgePx = max(warpImg.shape[:2])
+    ballDiaPx = int(round(longEdgePx * (2.25 / tableSize)))  # 2.25" over 100"
+    ballDiaPx = max(ballDiaPx, 8)
+
+    # Resize all ball images
+    ballResized = [
+        cv2.resize(b, (ballDiaPx, ballDiaPx), interpolation=cv2.INTER_AREA)
+        for b in ballImageBgrs
+    ]
+
+    for center, cls in zip(shotStudioCenters, ballClasses):
+        ballImg = ballResized[int(cls)]
+        bh, bw = ballImg.shape[:2]
+        x = int(round(center[0] - bw / 2))
+        y = int(round(center[1] - bh / 2))
+
+        # Bounds check
+        if (
+            x < 0
+            or y < 0
+            or x + bw > shotStudioTable.shape[1]
+            or y + bh > shotStudioTable.shape[0]
+        ):
+            continue
+
+        roi = shotStudioTable[y : y + bh, x : x + bw]
+
+        # Create mask for non-white pixels (treating white as background)
+        gray = cv2.cvtColor(ballImg, cv2.COLOR_BGR2GRAY)
+        _, mask = cv2.threshold(gray, 250, 255, cv2.THRESH_BINARY_INV)
+        maskInv = cv2.bitwise_not(mask)
+
+        fg = cv2.bitwise_and(ballImg, ballImg, mask=mask)
+        bg = cv2.bitwise_and(roi, roi, mask=maskInv)
+        combined = cv2.add(bg, fg)
+
+        shotStudioTable[y : y + bh, x : x + bw] = combined
+
+    cv2.imshow("Shot Studio Overlay", shotStudioTable)
+    cv2.waitKey(0)
+    cv2.destroyAllWindows()
+    return shotStudioTable
 
 
 def bb_IoU(bboxA, bboxB):

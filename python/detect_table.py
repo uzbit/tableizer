@@ -8,11 +8,12 @@ import numpy as np
 from math import atan2, cos, degrees, exp, radians, sin, sqrt
 import sys
 from utilities import (
+    drawShotStudio,
     load_detection_model,
     get_detection,
-    getBallInfo,
     drawBallOverlays,
-    pdfPageToCv2,
+    orderQuad,
+    warpTable,
 )
 
 # from auxillary.RL_usedirectly import load_RL_no_env
@@ -185,17 +186,10 @@ class CellularTableDetector:
         hull = cv2.convexHull(centers)
 
         # 3. Approximate hull with a quadrilateral
-        epsilon = 0.02 * cv2.arcLength(hull, True)
-        approx = cv2.approxPolyDP(hull, epsilon, True)
+        epsilon = 2.0 * cv2.arcLength(hull, True)
+        approx = cv2.approxPolyN(hull, 4, epsilon, 0.2)[0]
 
-        # 4. Handle edge cases
-        if len(approx) != 4:
-            # fallback to minimum area rectangle
-            rect = cv2.minAreaRect(centers)
-            box = cv2.boxPoints(rect)
-            quad = box.astype(np.float32)
-        else:
-            quad = approx.reshape(4, 2).astype(np.float32)
+        quad = approx.reshape(4, 2).astype(np.float32)
 
         # 5. Order quad as [BL, TL, BR, TR] (optional, if needed)
         return orderQuad(quad)
@@ -311,41 +305,6 @@ class CellularTableDetector:
         return canvas
 
 
-def orderQuad(pts):
-    """
-    Return the four 2-D points sorted **clockwise**.
-    Works for any initial ordering (even a crossed one).
-    """
-    pts = np.asarray(pts, dtype=np.float32).reshape(4, 2)
-    c = pts.mean(axis=0)  # centroid
-    angles = np.arctan2(pts[:, 1] - c[1], pts[:, 0] - c[0])  # angle w.r.t. +x axis
-    return pts[np.argsort(angles)]
-
-
-def warpTable(bgrImg, quad, imagePath, outW=(1000 - 212), rotate=False):
-    h0, w0 = bgrImg.shape[:2]
-
-    # ---- 2 : 1 landscape canvas -------------------------------------------
-    outH = int(2 * outW)
-    dst = np.array(
-        [[0, 0], [outW - 1, 0], [outW - 1, outH - 1], [0, outH - 1]], np.float32
-    )
-
-    Hpersp = cv2.getPerspectiveTransform(quad, dst)
-
-    if not rotate:  # 2 : 1 landscape
-        warp = cv2.warpPerspective(bgrImg, Hpersp, (outW, outH))
-        cv2.imwrite(imagePath, warp)
-        return warp, Hpersp, (outW, outH)  # <-- return size tuple too
-
-    # ---- embed 90 ° CCW rotation ------------------------------------------
-    rot = np.array([[0, 1, 0], [-1, 0, outW - 1], [0, 0, 1]], np.float32)
-    Htot = rot @ Hpersp  # original → portrait canvas
-    warp = cv2.warpPerspective(bgrImg, Htot, (outH, outW))
-    cv2.imwrite(imagePath, warp)
-    return warp, Htot, (outH, outW)
-
-
 def main():
 
     if len(sys.argv) == 2:
@@ -367,7 +326,7 @@ def runDetect(imagePath):
     print(f"Detecting for {imagePath}...")
     img = cv2.imread(imagePath)
     det = CellularTableDetector(
-        resizeHeight=2800, cellSize=10, deltaEThreshold=20
+        resizeHeight=3000, cellSize=20, deltaEThreshold=20
     )  # tweak threshold ↔ lighting
 
     small, inside, mask, debug = det.detect(img)
@@ -376,8 +335,9 @@ def runDetect(imagePath):
     # plt.title("Inside cells (green outlines)"); plt.axis("off")
     # plt.show()
 
-    quad = det.quadFromInside(inside, img.shape[1], img.shape[0])
-    # quad = det.quadFromInside2(inside)
+    # quad = det.quadFromInside(inside, img.shape[1], img.shape[0])
+    # if quad is None:
+    quad = det.quadFromInside2(inside)
 
     if quad is not None:
         vis = debug.copy()
@@ -394,7 +354,11 @@ def runDetect(imagePath):
 
         warp_path = "/tmp/warp.jpg"
         warpImg, Htot, warpSize = warpTable(
-            small, orderQuad(quad), warp_path, rotate=True
+            small,
+            orderQuad(quad),
+            warp_path,
+            outW=840,  # Shotstudio: (840, 1626, 3)
+            rotate=True,
         )
 
         warpedPts, ballClasses, warpRgb = getBalls(small_path, warpImg, Htot, warpSize)
@@ -432,7 +396,7 @@ def getBalls(origImgPath, warpImg, H, warpSize):
 
     # ---------- run detector on ORIGINAL frame ------------------------------
     origBgr, dets = get_detection(
-        origImgPath, model, post_process=True, conf_thresh=0.1, iou_thresh=0.1
+        origImgPath, model, post_process=True, conf_thresh=0.01, iou_thresh=0.5
     )
 
     # keep only balls
@@ -442,7 +406,8 @@ def getBalls(origImgPath, warpImg, H, warpSize):
         return None, None, None
 
     # ---------- centres in original-pixel space -----------------------------
-    ballCenters, ballClasses = getBallInfo(balls, H=None)  # returns Nx2 + classes
+    ballCenters = np.array([[b[0], b[1]] for b in balls])
+    ballClasses = balls[:, -1]
 
     # ---------- project into warp space -------------------------------------
     pts = np.asarray(ballCenters, np.float32).reshape(-1, 1, 2)
@@ -459,87 +424,6 @@ def getBalls(origImgPath, warpImg, H, warpSize):
     cv2.waitKey(0)
     cv2.destroyAllWindows()
     return warpedPts, ballClasses, warpRgb
-
-
-def _ensureBgra(img):
-    """Return BGRA image; if no alpha channel, create an opaque one."""
-    if img.shape[2] == 4:
-        return img
-    alpha = 255 * np.ones((*img.shape[:2], 1), np.uint8)
-    return np.dstack([img, alpha])
-
-
-def _pasteBgra(dst, src, x, y):
-    """Alpha-blend BGRA src onto BGR dst at top-left (x, y)."""
-    bh, bw = src.shape[:2]
-    roi = dst[y : y + bh, x : x + bw]
-
-    alpha = src[:, :, 3:4].astype(float) / 255.0
-    srcBgr = src[:, :, :3].astype(float)
-    roi[:] = (1 - alpha) * roi + alpha * srcBgr
-
-
-def drawShotStudio(ballCenters, ballClasses, warpImg):
-    # --- load balls as BGR ---
-    ballImageBgrs = [
-        pdfPageToCv2(Path("../data/red ball.pdf")),
-        pdfPageToCv2(Path("../data/yellow ball.pdf")),
-        pdfPageToCv2(Path("../data/cue ball.pdf")),
-        pdfPageToCv2(Path("../data/black ball.pdf")),
-    ]
-
-    shotStudioTable = cv2.imread(str(Path("../data/shotstudio_table.png")))
-    topRailWidth = 25
-    leftRail, topRail = 106, 106 - topRailWidth
-    shotStudioCenters = ballCenters + np.array([leftRail, topRail])
-
-    # Compute physical → pixel scale
-    # 7-foot: 78"
-    # 8-foot: 88"
-    # 9-foot: 100"
-    tableSize = 88
-    longEdgePx = max(warpImg.shape[:2])
-    ballDiaPx = int(round(longEdgePx * (2.25 / tableSize)))  # 2.25" over 100"
-    ballDiaPx = max(ballDiaPx, 8)
-
-    # Resize all ball images
-    ballResized = [
-        cv2.resize(b, (ballDiaPx, ballDiaPx), interpolation=cv2.INTER_AREA)
-        for b in ballImageBgrs
-    ]
-
-    for center, cls in zip(shotStudioCenters, ballClasses):
-        ballImg = ballResized[int(cls)]
-        bh, bw = ballImg.shape[:2]
-        x = int(round(center[0] - bw / 2))
-        y = int(round(center[1] - bh / 2))
-
-        # Bounds check
-        if (
-            x < 0
-            or y < 0
-            or x + bw > shotStudioTable.shape[1]
-            or y + bh > shotStudioTable.shape[0]
-        ):
-            continue
-
-        roi = shotStudioTable[y : y + bh, x : x + bw]
-
-        # Create mask for non-white pixels (treating white as background)
-        gray = cv2.cvtColor(ballImg, cv2.COLOR_BGR2GRAY)
-        _, mask = cv2.threshold(gray, 250, 255, cv2.THRESH_BINARY_INV)
-        maskInv = cv2.bitwise_not(mask)
-
-        fg = cv2.bitwise_and(ballImg, ballImg, mask=mask)
-        bg = cv2.bitwise_and(roi, roi, mask=maskInv)
-        combined = cv2.add(bg, fg)
-
-        shotStudioTable[y : y + bh, x : x + bw] = combined
-
-    cv2.imshow("Shot Studio Overlay", shotStudioTable)
-    cv2.waitKey(0)
-    cv2.destroyAllWindows()
-    return shotStudioTable
 
 
 if __name__ == "__main__":
