@@ -322,7 +322,7 @@ def orderQuad(pts):
     return pts[np.argsort(angles)]
 
 
-def warpTable(bgrImg, quad, imagePath, outW=(1000-212), rotate=False):
+def warpTable(bgrImg, quad, imagePath, outW=(1000 - 212), rotate=False):
     h0, w0 = bgrImg.shape[:2]
 
     # ---- 2 : 1 landscape canvas -------------------------------------------
@@ -354,7 +354,7 @@ def main():
     else:
         sys.exit(1)
 
-    image = None  # "../../pix2pockets/8-Ball-Pool-3/train/images/11f_png.rf.eb0169eccfb6b264a582491457ff37b6.jpg"
+    image = None  # "../data/Photos-1-001/P_20250711_201047.jpg"  # "../../pix2pockets/8-Ball-Pool-3/train/images/11f_png.rf.eb0169eccfb6b264a582491457ff37b6.jpg"
     if not image:
         for image in glob.glob(f"{imageDir}/*.jpg"):
             runDetect(image)
@@ -367,7 +367,7 @@ def runDetect(imagePath):
     print(f"Detecting for {imagePath}...")
     img = cv2.imread(imagePath)
     det = CellularTableDetector(
-        resizeHeight=2400, cellSize=5, deltaEThreshold=25
+        resizeHeight=2800, cellSize=10, deltaEThreshold=20
     )  # tweak threshold ↔ lighting
 
     small, inside, mask, debug = det.detect(img)
@@ -396,7 +396,7 @@ def runDetect(imagePath):
         warpImg, Htot, warpSize = warpTable(
             small, orderQuad(quad), warp_path, rotate=True
         )
-        
+
         warpedPts, ballClasses, warpRgb = getBalls(small_path, warpImg, Htot, warpSize)
         if warpedPts is not None:
             drawShotStudio(warpedPts, ballClasses, warpRgb)
@@ -432,7 +432,7 @@ def getBalls(origImgPath, warpImg, H, warpSize):
 
     # ---------- run detector on ORIGINAL frame ------------------------------
     origBgr, dets = get_detection(
-        origImgPath, model, post_process=True, conf_thresh=0.2
+        origImgPath, model, post_process=True, conf_thresh=0.1, iou_thresh=0.1
     )
 
     # keep only balls
@@ -468,14 +468,16 @@ def _ensureBgra(img):
     alpha = 255 * np.ones((*img.shape[:2], 1), np.uint8)
     return np.dstack([img, alpha])
 
+
 def _pasteBgra(dst, src, x, y):
     """Alpha-blend BGRA src onto BGR dst at top-left (x, y)."""
     bh, bw = src.shape[:2]
-    roi = dst[y:y + bh, x:x + bw]
+    roi = dst[y : y + bh, x : x + bw]
 
     alpha = src[:, :, 3:4].astype(float) / 255.0
     srcBgr = src[:, :, :3].astype(float)
     roi[:] = (1 - alpha) * roi + alpha * srcBgr
+
 
 def drawShotStudio(ballCenters, ballClasses, warpImg):
     # --- load balls as BGR ---
@@ -487,12 +489,17 @@ def drawShotStudio(ballCenters, ballClasses, warpImg):
     ]
 
     shotStudioTable = cv2.imread(str(Path("../data/shotstudio_table.png")))
-    leftRail, topRail = 106, 106
+    topRailWidth = 25
+    leftRail, topRail = 106, 106 - topRailWidth
     shotStudioCenters = ballCenters + np.array([leftRail, topRail])
 
     # Compute physical → pixel scale
+    # 7-foot: 78"
+    # 8-foot: 88"
+    # 9-foot: 100"
+    tableSize = 88
     longEdgePx = max(warpImg.shape[:2])
-    ballDiaPx = int(round(longEdgePx * (2.25 / 100.0)))  # 2.25" over 100"
+    ballDiaPx = int(round(longEdgePx * (2.25 / tableSize)))  # 2.25" over 100"
     ballDiaPx = max(ballDiaPx, 8)
 
     # Resize all ball images
@@ -508,10 +515,15 @@ def drawShotStudio(ballCenters, ballClasses, warpImg):
         y = int(round(center[1] - bh / 2))
 
         # Bounds check
-        if x < 0 or y < 0 or x + bw > shotStudioTable.shape[1] or y + bh > shotStudioTable.shape[0]:
+        if (
+            x < 0
+            or y < 0
+            or x + bw > shotStudioTable.shape[1]
+            or y + bh > shotStudioTable.shape[0]
+        ):
             continue
 
-        roi = shotStudioTable[y:y + bh, x:x + bw]
+        roi = shotStudioTable[y : y + bh, x : x + bw]
 
         # Create mask for non-white pixels (treating white as background)
         gray = cv2.cvtColor(ballImg, cv2.COLOR_BGR2GRAY)
@@ -522,12 +534,13 @@ def drawShotStudio(ballCenters, ballClasses, warpImg):
         bg = cv2.bitwise_and(roi, roi, mask=maskInv)
         combined = cv2.add(bg, fg)
 
-        shotStudioTable[y:y + bh, x:x + bw] = combined
+        shotStudioTable[y : y + bh, x : x + bw] = combined
 
     cv2.imshow("Shot Studio Overlay", shotStudioTable)
     cv2.waitKey(0)
     cv2.destroyAllWindows()
     return shotStudioTable
+
 
 if __name__ == "__main__":
     main()
