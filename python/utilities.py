@@ -42,14 +42,14 @@ def orderQuad(pts):
     return pts[np.argsort(angles)]
 
 
-def warpTable(bgrImg, quad, imagePath, outW=1000, rotate=False):
+def warpTable(bgrImg, quad, imagePath, outW=1000, rotate=False, scaleF=1.00):
     h0, w0 = bgrImg.shape[:2]
 
     # ---- 2 : 1 landscape canvas -------------------------------------------
     if rotate:
-        outH = int(2 * outW)
+        outH = int(scaleF * 2 * outW)
     else:
-        outH = int(outW)
+        outH = int(scaleF * outW)
         outW *= 2
 
     dst = np.array(
@@ -112,7 +112,7 @@ def drawShotStudio(ballCenters, ballClasses, warpImg):
     # 7-foot: 78"
     # 8-foot: 88"
     # 9-foot: 100"
-    tableSize = 88
+    tableSize = 78
     longEdgePx = max(warpImg.shape[:2])
     ballDiaPx = int(round(longEdgePx * (2.25 / tableSize)))  # 2.25" over 100"
     ballDiaPx = max(ballDiaPx, 8)
