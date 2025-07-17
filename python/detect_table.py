@@ -12,6 +12,7 @@ from utilities import (
     get_detection,
     getBallInfo,
     drawBallOverlays,
+    pdfPageToCv2,
 )
 
 # from auxillary.RL_usedirectly import load_RL_no_env
@@ -321,7 +322,7 @@ def orderQuad(pts):
     return pts[np.argsort(angles)]
 
 
-def warpTable(bgrImg, quad, imagePath, outW=640, rotate=True):
+def warpTable(bgrImg, quad, imagePath, outW=(1000-212), rotate=False):
     h0, w0 = bgrImg.shape[:2]
 
     # ---- 2 : 1 landscape canvas -------------------------------------------
@@ -366,7 +367,7 @@ def runDetect(imagePath):
     print(f"Detecting for {imagePath}...")
     img = cv2.imread(imagePath)
     det = CellularTableDetector(
-        resizeHeight=2400, cellSize=5, deltaEThreshold=15
+        resizeHeight=2400, cellSize=5, deltaEThreshold=25
     )  # tweak threshold ↔ lighting
 
     small, inside, mask, debug = det.detect(img)
@@ -393,10 +394,12 @@ def runDetect(imagePath):
 
         warp_path = "/tmp/warp.jpg"
         warpImg, Htot, warpSize = warpTable(
-            small, orderQuad(quad), warp_path, rotate=False
+            small, orderQuad(quad), warp_path, rotate=True
         )
-
-        getBalls(small_path, warpImg, Htot, warpSize)
+        
+        warpedPts, ballClasses, warpRgb = getBalls(small_path, warpImg, Htot, warpSize)
+        if warpedPts is not None:
+            drawShotStudio(warpedPts, ballClasses, warpRgb)
 
     else:
         vis = debug.copy()
@@ -436,7 +439,7 @@ def getBalls(origImgPath, warpImg, H, warpSize):
     balls = dets[dets[:, 5] != 4]
     if balls.size == 0:
         print("No balls.")
-        return
+        return None, None, None
 
     # ---------- centres in original-pixel space -----------------------------
     ballCenters, ballClasses = getBallInfo(balls, H=None)  # returns Nx2 + classes
@@ -455,7 +458,76 @@ def getBalls(origImgPath, warpImg, H, warpSize):
     cv2.imshow("Balls on warp", cv2.cvtColor(overlay, cv2.COLOR_RGB2BGR))
     cv2.waitKey(0)
     cv2.destroyAllWindows()
+    return warpedPts, ballClasses, warpRgb
 
+
+def _ensureBgra(img):
+    """Return BGRA image; if no alpha channel, create an opaque one."""
+    if img.shape[2] == 4:
+        return img
+    alpha = 255 * np.ones((*img.shape[:2], 1), np.uint8)
+    return np.dstack([img, alpha])
+
+def _pasteBgra(dst, src, x, y):
+    """Alpha-blend BGRA src onto BGR dst at top-left (x, y)."""
+    bh, bw = src.shape[:2]
+    roi = dst[y:y + bh, x:x + bw]
+
+    alpha = src[:, :, 3:4].astype(float) / 255.0
+    srcBgr = src[:, :, :3].astype(float)
+    roi[:] = (1 - alpha) * roi + alpha * srcBgr
+
+def drawShotStudio(ballCenters, ballClasses, warpImg):
+    # --- load balls as BGR ---
+    ballImageBgrs = [
+        pdfPageToCv2(Path("../data/red ball.pdf")),
+        pdfPageToCv2(Path("../data/yellow ball.pdf")),
+        pdfPageToCv2(Path("../data/cue ball.pdf")),
+        pdfPageToCv2(Path("../data/black ball.pdf")),
+    ]
+
+    shotStudioTable = cv2.imread(str(Path("../data/shotstudio_table.png")))
+    leftRail, topRail = 106, 106
+    shotStudioCenters = ballCenters + np.array([leftRail, topRail])
+
+    # Compute physical → pixel scale
+    longEdgePx = max(warpImg.shape[:2])
+    ballDiaPx = int(round(longEdgePx * (2.25 / 100.0)))  # 2.25" over 100"
+    ballDiaPx = max(ballDiaPx, 8)
+
+    # Resize all ball images
+    ballResized = [
+        cv2.resize(b, (ballDiaPx, ballDiaPx), interpolation=cv2.INTER_AREA)
+        for b in ballImageBgrs
+    ]
+
+    for center, cls in zip(shotStudioCenters, ballClasses):
+        ballImg = ballResized[int(cls)]
+        bh, bw = ballImg.shape[:2]
+        x = int(round(center[0] - bw / 2))
+        y = int(round(center[1] - bh / 2))
+
+        # Bounds check
+        if x < 0 or y < 0 or x + bw > shotStudioTable.shape[1] or y + bh > shotStudioTable.shape[0]:
+            continue
+
+        roi = shotStudioTable[y:y + bh, x:x + bw]
+
+        # Create mask for non-white pixels (treating white as background)
+        gray = cv2.cvtColor(ballImg, cv2.COLOR_BGR2GRAY)
+        _, mask = cv2.threshold(gray, 250, 255, cv2.THRESH_BINARY_INV)
+        maskInv = cv2.bitwise_not(mask)
+
+        fg = cv2.bitwise_and(ballImg, ballImg, mask=mask)
+        bg = cv2.bitwise_and(roi, roi, mask=maskInv)
+        combined = cv2.add(bg, fg)
+
+        shotStudioTable[y:y + bh, x:x + bw] = combined
+
+    cv2.imshow("Shot Studio Overlay", shotStudioTable)
+    cv2.waitKey(0)
+    cv2.destroyAllWindows()
+    return shotStudioTable
 
 if __name__ == "__main__":
     main()

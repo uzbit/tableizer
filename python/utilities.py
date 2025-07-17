@@ -7,6 +7,21 @@ from skimage import transform
 from matplotlib import pyplot as plt
 
 
+from pdf2image import convert_from_path   # uses Poppler
+import cv2
+import numpy as np
+
+
+def pdfPageToCv2(pdfPath, page=0, dpi=300):
+    """Return a BGR image (OpenCV) of the requested page."""
+    pilPages = convert_from_path(pdfPath, dpi=dpi, first_page=page+1, last_page=page+1)
+    if not pilPages:
+        raise ValueError("No such page in PDF")
+    pilImg   = pilPages[0]                            # PIL.Image
+    rgb      = np.array(pilImg)                       # RGB H×W×3 uint8
+    bgr      = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)   # OpenCV prefers BGR
+    return bgr
+
 def getBallInfo(ball_data, H):
     # print(H)
     # tform = transform.ProjectiveTransform(H)
