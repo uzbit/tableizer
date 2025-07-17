@@ -1,0 +1,3 @@
+/Users/uzbit/Documents/projects/tableizer/lib/build/CMakeFiles/tableizer_app.dir
+/Users/uzbit/Documents/projects/tableizer/lib/build/CMakeFiles/edit_cache.dir
+/Users/uzbit/Documents/projects/tableizer/lib/build/CMakeFiles/rebuild_cache.dir
