@@ -4,62 +4,60 @@
 
 #include <opencv2/imgproc/imgproc.hpp>
 
-using namespace std;
 using namespace cv;
 
-BallDetector::BallDetector(const std::string& model_path) : device_(torch::kCPU) {
+BallDetector::BallDetector(const string& modelPath) : device(torch::kCPU) {
     try {
-        module_ = torch::jit::load(model_path);
-        module_.to(device_);
-        module_.eval();
+        module = torch::jit::load(modelPath);
+        module.to(device);
+        module.eval();
     } catch (const c10::Error& e) {
-        std::cerr << "Error loading the model: " << e.what() << std::endl;
+        cerr << "Error loading the model: " << e.what() << endl;
         exit(-1);
     }
 }
-// Assumes Detection { cv::Rect2f box; float confidence; int class_id; }
+// Assumes Detection { Rect2f box; float confidence; int classId; }
 
-std::vector<Detection> BallDetector::detect(const cv::Mat& image, float confThreshold,
-                                            float iouThreshold) {
+vector<Detection> BallDetector::detect(const Mat& image, float confThreshold, float iouThreshold) {
     // ───────────────────────────────────────────────────────── 1. Letter-box to 640×640
     constexpr int kTarget = 640;
     const int origW = image.cols;
     const int origH = image.rows;
 
-    const float r = std::min(static_cast<float>(kTarget) / origW,
-                             static_cast<float>(kTarget) / origH);  // uniform resize
-    const int newW = static_cast<int>(std::round(origW * r));
-    const int newH = static_cast<int>(std::round(origH * r));
+    const float r = min(static_cast<float>(kTarget) / origW,
+                        static_cast<float>(kTarget) / origH);  // uniform resize
+    const int newW = static_cast<int>(round(origW * r));
+    const int newH = static_cast<int>(round(origH * r));
 
     const int padW = (kTarget - newW) / 2;  // left/right padding
     const int padH = (kTarget - newH) / 2;  // top/bottom padding
 
-    cv::Mat resized;
-    cv::resize(image, resized, cv::Size(newW, newH));
+    Mat resized;
+    resize(image, resized, Size(newW, newH));
 
-    cv::Mat letterbox(kTarget, kTarget, CV_8UC3, cv::Scalar(114, 114, 114));  // YOLOv5 fill
-    resized.copyTo(letterbox(cv::Rect(padW, padH, newW, newH)));
+    Mat letterbox(kTarget, kTarget, CV_8UC3, Scalar(114, 114, 114));  // YOLOv5 fill
+    resized.copyTo(letterbox(Rect(padW, padH, newW, newH)));
 
     // ───────────────────────────────────────────────────────── 2. To tensor
-    cv::cvtColor(letterbox, letterbox, cv::COLOR_BGR2RGB);
+    cvtColor(letterbox, letterbox, COLOR_BGR2RGB);
     letterbox.convertTo(letterbox, CV_32F, 1.0 / 255.0);
 
     auto tensorImg = torch::from_blob(letterbox.data, {1, kTarget, kTarget, 3})
-                         .to(device_)            // CPU / CUDA
+                         .to(device)             // CPU / CUDA
                          .permute({0, 3, 1, 2})  // NHWC → NCHW
                          .contiguous();
 
     // ───────────────────────────────────────────────────────── 3. Forward
-    std::vector<torch::jit::IValue> inputs{tensorImg};
+    vector<torch::jit::IValue> inputs{tensorImg};
     at::Tensor out =
-        module_.forward(inputs).toTuple()->elements()[0].toTensor().squeeze(0);  // shape: (N, D)
+        module.forward(inputs).toTuple()->elements()[0].toTensor().squeeze(0);  // shape: (N, D)
 
     const int nDet = out.size(0);
     const int nDim = out.size(1);  // 6 or 85 depending on training
     auto a = out.accessor<float, 2>();
 
     // ───────────────────────────────────────────────────────── 4. Parse + de-letterbox
-    std::vector<Detection> preNMS;
+    vector<Detection> preNMS;
     preNMS.reserve(nDet);
 
     for (int i = 0; i < nDet; ++i) {
@@ -92,32 +90,32 @@ std::vector<Detection> BallDetector::detect(const cv::Mat& image, float confThre
         y2 = (y2 - padH) / r;
 
         // clip
-        x1 = std::clamp(x1, 0.f, static_cast<float>(origW - 1));
-        y1 = std::clamp(y1, 0.f, static_cast<float>(origH - 1));
-        x2 = std::clamp(x2, 0.f, static_cast<float>(origW - 1));
-        y2 = std::clamp(y2, 0.f, static_cast<float>(origH - 1));
+        x1 = clamp(x1, 0.f, static_cast<float>(origW - 1));
+        y1 = clamp(y1, 0.f, static_cast<float>(origH - 1));
+        x2 = clamp(x2, 0.f, static_cast<float>(origW - 1));
+        y2 = clamp(y2, 0.f, static_cast<float>(origH - 1));
 
         Detection d;
-        d.box = cv::Rect2f(cv::Point2f(x1, y1), cv::Point2f(x2, y2));
+        d.box = Rect2f(Point2f(x1, y1), Point2f(x2, y2));
         d.confidence = conf;
-        d.class_id = clsId;
+        d.classId = clsId;
         preNMS.push_back(std::move(d));
     }
 
     // ───────────────────────────────────────────────────────── 5. NMS (OpenCV)
-    std::vector<cv::Rect> boxes;
-    std::vector<float> scores;
+    vector<Rect> boxes;
+    vector<float> scores;
     for (const auto& d : preNMS) {
         boxes.emplace_back(
-            cv::Rect(cv::Point(static_cast<int>(d.box.x), static_cast<int>(d.box.y)),
-                     cv::Point(static_cast<int>(d.box.br().x), static_cast<int>(d.box.br().y))));
+            Rect(Point(static_cast<int>(d.box.x), static_cast<int>(d.box.y)),
+                 Point(static_cast<int>(d.box.br().x), static_cast<int>(d.box.br().y))));
         scores.push_back(d.confidence);
     }
 
-    std::vector<int> keep;
-    cv::dnn::NMSBoxes(boxes, scores, confThreshold, iouThreshold, keep);
+    vector<int> keep;
+    dnn::NMSBoxes(boxes, scores, confThreshold, iouThreshold, keep);
 
-    std::vector<Detection> finalDet;
+    vector<Detection> finalDet;
     finalDet.reserve(keep.size());
     for (int idx : keep) finalDet.push_back(preNMS[idx]);
 

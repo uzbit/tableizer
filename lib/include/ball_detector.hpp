@@ -6,21 +6,23 @@
 #include <opencv2/opencv.hpp>
 #include <vector>
 
+using namespace std;
+
 struct Detection {
     cv::Rect box;
     float confidence;
-    int class_id;
+    int classId;
 };
 
 class BallDetector {
    public:
-    BallDetector(const std::string &model_path);
-    std::vector<Detection> detect(const cv::Mat &image, float conf_threshold = 0.25,
-                                  float iou_threshold = 0.45);
+    BallDetector(const std::string &modelPath);
+    std::vector<Detection> detect(const cv::Mat &image, float confThreshold = 0.25,
+                                  float iouThreshold = 0.45);
 
    private:
-    torch::jit::script::Module module_;
-    torch::Device device_;
+    torch::jit::script::Module module;
+    torch::Device device;
 };
 
 #endif  // BALL_DETECTOR_HPP

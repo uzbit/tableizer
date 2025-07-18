@@ -5,24 +5,26 @@
 #include <string>
 #include <vector>
 
+#include "ball_detector.hpp"
+
 // A placeholder for the final library API.
 using namespace cv;
 
 struct Ball {
-    cv::Point2f position;
-    int class_id;
+    Point2f position;
+    int classId;
 };
 
 class TableState {
    public:
-    cv::Mat getWarpedTable() const;
+    Mat getWarpedTable() const;
     std::vector<Ball> getBalls() const;
 
    private:
-    cv::Mat warped_table_;
-    std::vector<Ball> balls_;
+    Mat warpedTable;
+    std::vector<Ball> balls;
 };
 
-int runTabelizerForImage(Mat image);
+int runTableizerForImage(Mat image, BallDetector ballDetector);
 
 #endif  // TABLEIZER_HPP

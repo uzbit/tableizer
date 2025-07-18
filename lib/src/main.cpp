@@ -3,6 +3,7 @@
 #include <opencv2/opencv.hpp>
 #include <string>
 
+#include "ball_detector.hpp"
 #include "tableizer.hpp"
 
 namespace fs = std::filesystem;
@@ -17,6 +18,9 @@ int main(int argc, char* argv[]) {
 
     std::string directory = argv[1];
 
+    const string modelPath = "lib/models/detection_model.torchscript.pt";
+    BallDetector ballDetector(modelPath);
+
     for (const auto& entry : fs::directory_iterator(directory)) {
         if (entry.is_regular_file() && entry.path().extension() == ".jpg") {
             std::cout << "Found: " << entry.path() << std::endl;
@@ -25,11 +29,11 @@ int main(int argc, char* argv[]) {
                 cerr << "Error: Could not open image at " << entry.path() << endl;
                 return -1;
             }
-            cout << "--- Step 1: Image Loading ---" << endl;
+            cout << "--- Step 1: " << entry.path() << "Loading ---" << endl;
             cout << "Original image dimensions: " << image.cols << "x" << image.rows << endl;
             cout << endl;
 
-            runTabelizerForImage(image);
+            runTableizerForImage(image, ballDetector);
         }
     }
 

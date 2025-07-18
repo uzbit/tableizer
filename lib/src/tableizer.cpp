@@ -12,58 +12,64 @@
 using namespace std;
 using namespace cv;
 
-int runTabelizerForImage(Mat image) {
+#define IMSHOW false
+
+int runTableizerForImage(Mat image, BallDetector ballDetector) {
+#if IMSHOW
     imshow("Table", image);
     waitKey(0);
+#endif
     // 2. Detect Table
     int resizeHeight = 3000;
     int cellSize = 20;
     double deltaEThreshold = 20.0;
-    CellularTableDetector table_detector(image.rows, cellSize, deltaEThreshold);
+    CellularTableDetector tableDetector(image.rows, cellSize, deltaEThreshold);
 
     cout << "--- Step 2: Table Detection ---" << endl;
     cout << "Parameters: resizeHeight=" << resizeHeight << ", cellSize=" << cellSize
          << ", deltaEThreshold=" << deltaEThreshold << endl;
 
-    Mat mask, table_detection;
+    Mat mask, tableDetection;
 
-    table_detector.detect(image, mask, table_detection);
-    cout << "Resized image for detection dimensions: " << table_detection.cols << "x"
-         << table_detection.rows << endl;
+    tableDetector.detect(image, mask, tableDetection);
+    cout << "Resized image for detection dimensions: " << tableDetection.cols << "x"
+         << tableDetection.rows << endl;
 
     std::vector<cv::Point2f> quadPoints =
-        table_detector.quadFromInside(mask, table_detection.cols, table_detection.rows);
+        tableDetector.quadFromInside(mask, tableDetection.cols, tableDetection.rows);
 
+#if IMSHOW
     std::vector<cv::Point> quadDraw;
     quadDraw.reserve(quadPoints.size());
 
     for (const auto &pt : quadPoints) quadDraw.emplace_back(cvRound(pt.x), cvRound(pt.y));
 
-    cv::polylines(table_detection, quadDraw, true, cv::Scalar(0, 0, 255), 5);
-    imshow("Quad Found", table_detection);
+    cv::polylines(tableDetection, quadDraw, true, cv::Scalar(0, 0, 255), 5);
+    imshow("Quad Found", tableDetection);
     waitKey(0);
-
+#endif
     if (quadPoints.size() != 4) {
         cerr << "Error: Could not detect table quad." << endl;
-        imshow("Debug: No Quad Found", table_detection);
+        imshow("Debug: No Quad Found", tableDetection);
         waitKey(0);
         return -1;
     }
 
+#if IMSHOW
     cout << "Detected table quad corners (in resized image coordinates):" << endl;
     for (const auto &p : quadPoints) {
         cout << "  - (" << p.x << ", " << p.y << ")" << endl;
     }
     cout << endl;
+#endif
 
     // 3. Warp Table
-    WarpResult warpResult = warpTable(image, quadPoints, "warp.jpg", 840, true);
+    bool rotate = true;
+    WarpResult warpResult = warpTable(image, quadPoints, "warp.jpg", 840, rotate);
 
     // --- Ball detection & drawing --------------------------
     // 4. Detect balls **on the original image**
     cout << "--- Step 4: Ball Detection ---" << endl;
-    const string modelPath = "lib/models/detection_model.torchscript.pt";
-    BallDetector ballDetector(modelPath);
     const vector<Detection> detections = ballDetector.detect(image);
     cout << "Found " << detections.size() << " balls after non-maximum suppression.\n\n";
 
@@ -72,9 +78,9 @@ int runTabelizerForImage(Mat image) {
     // table_detector resized the image to `resizeHeight` while preserving aspect.
     // Derive the scale used for that resize so we can link both spaces together.
     const double scaleY =
-        static_cast<double>(table_detection.rows) / static_cast<double>(image.rows);
+        static_cast<double>(tableDetection.rows) / static_cast<double>(image.rows);
     const double scaleX =
-        static_cast<double>(table_detection.cols) / static_cast<double>(image.cols);
+        static_cast<double>(tableDetection.cols) / static_cast<double>(image.cols);
 
     // homogeneous scale matrix (3×3)
     cv::Mat Hscale = (cv::Mat_<double>(3, 3) << scaleX, 0, 0, 0, scaleY, 0, 0, 0, 1);
@@ -112,37 +118,43 @@ int runTabelizerForImage(Mat image) {
         float textSize = 3.0;
         for (size_t i = 0; i < ballCentresCanonical.size(); ++i) {
             const auto &p = ballCentresCanonical[i];
-            cout << "  • class " << detections[i].class_id << " @ (" << p.x << ", " << p.y << ")\n";
+            cout << "  • class " << detections[i].classId << " @ (" << p.x << ", " << p.y << ")\n";
+#if IMSHOW
             cv::Scalar ballColor;
-            if (detections[i].class_id == 0)
+            if (detections[i].classId == 0)
                 ballColor = cv::Scalar(0, 0, 255);  // red fill
-            else if (detections[i].class_id == 1)
+            else if (detections[i].classId == 1)
                 ballColor = cv::Scalar(255, 222, 33);  // yellow fill
-            else if (detections[i].class_id == 2)
+            else if (detections[i].classId == 2)
                 ballColor = cv::Scalar(255, 255, 255);  // cue fill
             else
                 ballColor = cv::Scalar(0, 0, 0);  // black fill
 
-            cv::putText(warpedOut, std::to_string(detections[i].class_id),
+            cv::circle(warpedOut, p, 5, ballColor, cv::LineTypes::LINE_AA);
+            cv::putText(warpedOut, std::to_string(detections[i].classId),
                         p + cv::Point2f(radius + 2, 0), cv::FONT_HERSHEY_SIMPLEX, textSize,
                         textColor, 2);
 
             // draw on studio template (assumes same canvas size)
             if (!shotStudio.empty()) {
                 cv::circle(shotStudio, p, radius, ballColor, cv::FILLED);
-                cv::putText(shotStudio, std::to_string(detections[i].class_id),
+                cv::putText(shotStudio, std::to_string(detections[i].classId),
                             p + cv::Point2f(radius + 2, 0), cv::FONT_HERSHEY_SIMPLEX, textSize,
                             textColor, 2);
             }
+#endif
         }
         cout << endl;
     }
 
+#if IMSHOW
     // 7. Display results
     cv::imshow("Warped Table + Balls", warpedOut);
     if (!shotStudio.empty()) {
         cv::imshow("Shot-Studio Overlay", shotStudio);
     }
     cv::waitKey(0);
+#endif
+
     return 0;
 }

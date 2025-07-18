@@ -3,22 +3,25 @@
 
 #include <opencv2/opencv.hpp>
 
+using namespace std;
+using namespace cv;
+
 class CellularTableDetector {
    public:
     CellularTableDetector(int resizeHeight = 600, int cellSize = 24, double deltaEThreshold = 10.0);
 
-    void detect(const cv::Mat &imgBgr, cv::Mat &mask, cv::Mat &debugDraw);
-    std::vector<cv::Point2f> quadFromInside(const cv::Mat &inside, int width, int height);
+    void detect(const Mat &imgBgr, Mat &mask, Mat &debugDraw);
+    vector<Point2f> quadFromInside(const Mat &inside, int width, int height);
 
    private:
-    cv::Mat prepareImage(const cv::Mat &imgBgr);
-    cv::Vec3f getMedianLab(const cv::Mat &labImg, int cellR, int cellC);
-    double deltaE2000(const cv::Vec3f &lab1, const cv::Vec3f &lab2);
-    void drawCells(cv::Mat &canvas, const cv::Mat &insideMask);
+    Mat prepareImage(const Mat &imgBgr);
+    Vec3f getMedianLab(const Mat &labImg, int cellR, int cellC);
+    double deltaE2000(const Vec3f &lab1, const Vec3f &lab2);
+    void drawCells(Mat &canvas, const Mat &insideMask);
 
-    int resizeHeight_;
-    int cellSize_;
-    double deltaEThreshold_;
+    int resizeHeight;
+    int cellSize;
+    double deltaEThreshold;
 };
 
 #endif  // TABLE_DETECTOR_HPP
