@@ -3,6 +3,9 @@
 
 #include <opencv2/opencv.hpp>
 
+using namespace std;
+using namespace cv;
+
 WarpResult warpTable(const cv::Mat& bgrImg, const std::vector<cv::Point2f>& quad,
                      const std::string& imagePath, int outW, bool rotate, double scaleF) {
     int outH;
@@ -39,4 +42,15 @@ WarpResult warpTable(const cv::Mat& bgrImg, const std::vector<cv::Point2f>& quad
 
     cv::imwrite(imagePath, warped);
     return {warped, finalH};
+}
+
+// Function to order the quad points counter-clockwise
+vector<Point2f> orderQuad(const vector<Point2f>& pts) {
+    vector<Point2f> sorted_pts = pts;
+    Scalar centroid = mean(pts);
+    sort(sorted_pts.begin(), sorted_pts.end(), [centroid](const Point2f& a, const Point2f& b) {
+        return atan2(a.y - centroid[1], a.x - centroid[0]) <
+               atan2(b.y - centroid[1], b.x - centroid[0]);
+    });
+    return sorted_pts;
 }

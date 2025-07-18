@@ -8,7 +8,7 @@ class CellularTableDetector {
     CellularTableDetector(int resizeHeight = 600, int cellSize = 24, double deltaEThreshold = 10.0);
 
     void detect(const cv::Mat &imgBgr, cv::Mat &mask, cv::Mat &debugDraw);
-    cv::Mat quadFromInside(const cv::Mat &inside, int width, int height);
+    std::vector<cv::Point2f> quadFromInside(const cv::Mat &inside, int width, int height);
 
    private:
     cv::Mat prepareImage(const cv::Mat &imgBgr);

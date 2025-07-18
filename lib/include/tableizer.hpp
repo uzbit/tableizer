@@ -6,6 +6,7 @@
 #include <vector>
 
 // A placeholder for the final library API.
+using namespace cv;
 
 struct Ball {
     cv::Point2f position;
@@ -22,6 +23,6 @@ class TableState {
     std::vector<Ball> balls_;
 };
 
-TableState detect_table_state(const cv::Mat &image, const std::string &model_path);
+int runTabelizerForImage(Mat image);
 
 #endif  // TABLEIZER_HPP

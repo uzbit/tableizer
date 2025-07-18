@@ -6,6 +6,8 @@
 #include <numeric>
 #include <vector>
 
+#include "utilities.hpp"
+
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
 #endif
@@ -181,7 +183,8 @@ double CellularTableDetector::deltaE2000(const cv::Vec3f &lab1, const cv::Vec3f 
                      Rt * (dCp / Sc) * (dHp / Sh));
 }
 
-cv::Mat CellularTableDetector::quadFromInside(const cv::Mat &inside, int width, int height) {
+std::vector<cv::Point2f> CellularTableDetector::quadFromInside(const cv::Mat &inside, int width,
+                                                               int height) {
     // Find contours of the inside cells
     std::vector<std::vector<cv::Point>> contours;
     cv::findContours(inside, contours, cv::RETR_EXTERNAL, cv::CHAIN_APPROX_SIMPLE);
@@ -224,5 +227,5 @@ cv::Mat CellularTableDetector::quadFromInside(const cv::Mat &inside, int width, 
         quad.at<cv::Vec2f>(i, 0) = cv::Point2f(approx[i].x, approx[i].y);
     }
 
-    return quad;
+    return orderQuad(quad);
 }
