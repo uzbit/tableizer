@@ -1,9 +1,10 @@
 #include "table_detector.hpp"
+
+#include <algorithm>
 #include <cmath>
+#include <iostream>
 #include <numeric>
 #include <vector>
-#include <algorithm>
-#include <iostream>
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
@@ -12,28 +13,28 @@
 CellularTableDetector::CellularTableDetector(int resizeHeight, int cellSize, double deltaEThreshold)
     : resizeHeight_(resizeHeight), cellSize_(cellSize), deltaEThreshold_(deltaEThreshold) {}
 
-cv::Mat CellularTableDetector::prepareImage(const cv::Mat& imgBgr) {
+cv::Mat CellularTableDetector::prepareImage(const cv::Mat &imgBgr) {
     cv::Mat small;
     float scale = (float)resizeHeight_ / imgBgr.rows;
     cv::resize(imgBgr, small, cv::Size(0, 0), scale, scale, cv::INTER_AREA);
 
     cv::Mat lab;
     cv::cvtColor(small, lab, cv::COLOR_BGR2Lab);
-    
+
     cv::Mat lab_float;
     lab.convertTo(lab_float, CV_32F);
 
     std::vector<cv::Mat> channels(3);
     cv::split(lab_float, channels);
-    channels[0] = channels[0] * 100.0 / 255.0; // L channel
-    channels[1] = channels[1] - 128.0;       // a channel
-    channels[2] = channels[2] - 128.0;       // b channel
+    channels[0] = channels[0] * 100.0 / 255.0;  // L channel
+    channels[1] = channels[1] - 128.0;          // a channel
+    channels[2] = channels[2] - 128.0;          // b channel
     cv::merge(channels, lab_float);
 
     return lab_float;
 }
 
-cv::Vec3f CellularTableDetector::getMedianLab(const cv::Mat& labImg, int cellR, int cellC) {
+cv::Vec3f CellularTableDetector::getMedianLab(const cv::Mat &labImg, int cellR, int cellC) {
     int y1 = cellR * cellSize_;
     int x1 = cellC * cellSize_;
     int y2 = std::min(y1 + cellSize_, labImg.rows);
@@ -41,7 +42,7 @@ cv::Vec3f CellularTableDetector::getMedianLab(const cv::Mat& labImg, int cellR, 
 
     cv::Mat cell = labImg(cv::Rect(x1, y1, x2 - x1, y2 - y1)).clone();
     cv::Mat cell_reshaped = cell.reshape(1, cell.total());
-    
+
     std::vector<float> L, a, b;
     for (int i = 0; i < cell_reshaped.rows; ++i) {
         L.push_back(cell_reshaped.at<cv::Vec3f>(i)[0]);
@@ -60,7 +61,7 @@ cv::Vec3f CellularTableDetector::getMedianLab(const cv::Mat& labImg, int cellR, 
     return cv::Vec3f(medianL, medianA, medianB);
 }
 
-void CellularTableDetector::detect(const cv::Mat& imgBgr, cv::Mat& mask, cv::Mat& debugDraw) {
+void CellularTableDetector::detect(const cv::Mat &imgBgr, cv::Mat &mask, cv::Mat &debugDraw) {
     cv::Mat small_bgr;
     float scale = (float)resizeHeight_ / imgBgr.rows;
     cv::resize(imgBgr, small_bgr, cv::Size(0, 0), scale, scale, cv::INTER_AREA);
@@ -76,7 +77,7 @@ void CellularTableDetector::detect(const cv::Mat& imgBgr, cv::Mat& mask, cv::Mat
 
     int centreR = rows / 2;
     int centreC = cols / 2;
-    
+
     cv::Vec3f refLab = getMedianLab(labImg, centreR, centreC);
 
     std::vector<cv::Point> queue;
@@ -97,7 +98,8 @@ void CellularTableDetector::detect(const cv::Mat& imgBgr, cv::Mat& mask, cv::Mat
                     if (dr == 0 && dc == 0) continue;
                     int nr = r + dr;
                     int nc = c + dc;
-                    if (nr >= 0 && nr < rows && nc >= 0 && nc < cols && !visited.at<uchar>(nr, nc)) {
+                    if (nr >= 0 && nr < rows && nc >= 0 && nc < cols &&
+                        !visited.at<uchar>(nr, nc)) {
                         visited.at<uchar>(nr, nc) = 1;
                         queue.push_back(cv::Point(nc, nr));
                     }
@@ -110,19 +112,21 @@ void CellularTableDetector::detect(const cv::Mat& imgBgr, cv::Mat& mask, cv::Mat
     drawCells(debugDraw, inside);
 }
 
-void CellularTableDetector::drawCells(cv::Mat& canvas, const cv::Mat& insideMask) {
+void CellularTableDetector::drawCells(cv::Mat &canvas, const cv::Mat &insideMask) {
     for (int r = 0; r < insideMask.rows; ++r) {
         for (int c = 0; c < insideMask.cols; ++c) {
             if (insideMask.at<uchar>(r, c)) {
                 int y = r * cellSize_;
                 int x = c * cellSize_;
-                cv::rectangle(canvas, cv::Point(x, y), cv::Point(x + cellSize_ - 1, y + cellSize_ - 1), cv::Scalar(0, 255, 0), 1);
+                cv::rectangle(canvas, cv::Point(x, y),
+                              cv::Point(x + cellSize_ - 1, y + cellSize_ - 1),
+                              cv::Scalar(0, 255, 0), 1);
             }
         }
     }
 }
 
-double CellularTableDetector::deltaE2000(const cv::Vec3f& lab1, const cv::Vec3f& lab2) {
+double CellularTableDetector::deltaE2000(const cv::Vec3f &lab1, const cv::Vec3f &lab2) {
     double L1 = lab1[0], a1 = lab1[1], b1 = lab1[2];
     double L2 = lab2[0], a2 = lab2[1], b2 = lab2[2];
 
@@ -162,21 +166,22 @@ double CellularTableDetector::deltaE2000(const cv::Vec3f& lab1, const cv::Vec3f&
     }
     if (hBarP >= 360) hBarP -= 360;
 
-    double T = 1 - 0.17 * std::cos((hBarP - 30) * M_PI / 180.0)
-                 + 0.24 * std::cos((2 * hBarP) * M_PI / 180.0)
-                 + 0.32 * std::cos((3 * hBarP + 6) * M_PI / 180.0)
-                 - 0.20 * std::cos((4 * hBarP - 63) * M_PI / 180.0);
+    double T = 1 - 0.17 * std::cos((hBarP - 30) * M_PI / 180.0) +
+               0.24 * std::cos((2 * hBarP) * M_PI / 180.0) +
+               0.32 * std::cos((3 * hBarP + 6) * M_PI / 180.0) -
+               0.20 * std::cos((4 * hBarP - 63) * M_PI / 180.0);
 
     double Sl = 1 + (0.015 * std::pow(LBarP - 50, 2)) / std::sqrt(20 + std::pow(LBarP - 50, 2));
     double Sc = 1 + 0.045 * cBarP;
     double Sh = 1 + 0.015 * cBarP * T;
-    double Rt = -2 * std::sqrt(std::pow(cBarP, 7) / (std::pow(cBarP, 7) + std::pow(25.0, 7)))
-              * std::sin(60 * std::exp(-std::pow((hBarP - 275) / 25.0, 2)) * M_PI / 180.0);
+    double Rt = -2 * std::sqrt(std::pow(cBarP, 7) / (std::pow(cBarP, 7) + std::pow(25.0, 7))) *
+                std::sin(60 * std::exp(-std::pow((hBarP - 275) / 25.0, 2)) * M_PI / 180.0);
 
-    return std::sqrt(std::pow(dLp / Sl, 2) + std::pow(dCp / Sc, 2) + std::pow(dHp / Sh, 2) + Rt * (dCp / Sc) * (dHp / Sh));
+    return std::sqrt(std::pow(dLp / Sl, 2) + std::pow(dCp / Sc, 2) + std::pow(dHp / Sh, 2) +
+                     Rt * (dCp / Sc) * (dHp / Sh));
 }
 
-cv::Mat CellularTableDetector::quadFromInside(const cv::Mat& inside, int width, int height) { 
+cv::Mat CellularTableDetector::quadFromInside(const cv::Mat &inside, int width, int height) {
     // Find contours of the inside cells
     std::vector<std::vector<cv::Point>> contours;
     cv::findContours(inside, contours, cv::RETR_EXTERNAL, cv::CHAIN_APPROX_SIMPLE);
@@ -215,8 +220,8 @@ cv::Mat CellularTableDetector::quadFromInside(const cv::Mat& inside, int width, 
 
     // Convert to Mat
     cv::Mat quad(4, 1, CV_32FC2);
-    for(int i=0; i<4; ++i) {
-        quad.at<cv::Vec2f>(i,0) = cv::Point2f(approx[i].x, approx[i].y);
+    for (int i = 0; i < 4; ++i) {
+        quad.at<cv::Vec2f>(i, 0) = cv::Point2f(approx[i].x, approx[i].y);
     }
 
     return quad;

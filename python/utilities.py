@@ -68,7 +68,7 @@ def warpTable(bgrImg, quad, imagePath, outW=1000, rotate=False, scaleF=1.00):
     Htot = rot @ Hpersp  # original → portrait canvas
     warp = cv2.warpPerspective(bgrImg, Htot, (outH, outW))
     cv2.imwrite(imagePath, warp)
-    return warp, Htot, (outH, outW)
+    return warp, Htot
 
 
 def drawBallOverlays(imgBgr, ballCenters, ballClasses, radius=12):

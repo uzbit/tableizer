@@ -353,7 +353,7 @@ def runDetect(imagePath):
         cv2.imwrite(small_path, small)
 
         warp_path = "/tmp/warp.jpg"
-        warpImg, Htot, warpSize = warpTable(
+        warpImg, Htot = warpTable(
             small,
             orderQuad(quad),
             warp_path,
@@ -361,7 +361,7 @@ def runDetect(imagePath):
             rotate=True,
         )
 
-        warpedPts, ballClasses, warpRgb = getBalls(small_path, warpImg, Htot, warpSize)
+        warpedPts, ballClasses, warpRgb = getBalls(small_path, warpImg, Htot)
         if warpedPts is not None:
             drawShotStudio(warpedPts, ballClasses, warpRgb)
 
@@ -384,12 +384,11 @@ def runDetect(imagePath):
     print("-" * 100)
 
 
-def getBalls(origImgPath, warpImg, H, warpSize):
+def getBalls(origImgPath, warpImg, H):
     """
     origImgPath : original full-frame image path
     warpImg     : portrait or landscape cloth image from warpTable
     H           : homography original → warpImg (already includes rotation)
-    warpSize    : (W, H) of warpImg
     """
     modelPath = "/Users/uzbit/Documents/projects/pix2pockets/detection_model_weight/detection_model.pt"
     model = load_detection_model(modelPath)

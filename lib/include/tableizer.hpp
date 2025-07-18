@@ -2,8 +2,8 @@
 #define TABLEIZER_HPP
 
 #include <opencv2/opencv.hpp>
-#include <vector>
 #include <string>
+#include <vector>
 
 // A placeholder for the final library API.
 
@@ -13,15 +13,15 @@ struct Ball {
 };
 
 class TableState {
-public:
+   public:
     cv::Mat getWarpedTable() const;
     std::vector<Ball> getBalls() const;
 
-private:
+   private:
     cv::Mat warped_table_;
     std::vector<Ball> balls_;
 };
 
-TableState detect_table_state(const cv::Mat& image, const std::string& model_path);
+TableState detect_table_state(const cv::Mat &image, const std::string &model_path);
 
-#endif // TABLEIZER_HPP
+#endif  // TABLEIZER_HPP

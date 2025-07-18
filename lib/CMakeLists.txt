@@ -19,7 +19,7 @@ include_directories(
 )
 
 # Add executable
-add_executable(tableizer_app src/main.cpp src/table_detector.cpp src/ball_detector.cpp)
+add_executable(tableizer_app src/main.cpp src/table_detector.cpp src/ball_detector.cpp src/utilities.cpp)
 
 # Link libraries
 target_link_libraries(tableizer_app
