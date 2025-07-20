@@ -12,7 +12,7 @@
 using namespace std;
 using namespace cv;
 
-#define IMSHOW false
+#define IMSHOW true
 
 int runTableizerForImage(Mat image, BallDetector ballDetector) {
 #if IMSHOW
