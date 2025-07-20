@@ -1,3 +1,0 @@
-This project will be a library for the identification and classification of a pool table state. Specifically, an input image of a pool table is processed and the output is a canonical representation of a pool table and the locations of the pool balls and their class (cue, black, solid, stripe, for 8-ball). 
-
-In the python directory, you will find a fully functional first approximation of how this library will work. Take a look at that directory now, analyze the code, and make a plan to create a highly optimized (utilizing OpenCV, torch) C++ library in the lib/ dir.

@@ -121,11 +121,11 @@ int runTableizerForImage(Mat image, BallDetector ballDetector) {
             cout << "  • class " << detections[i].classId << " @ (" << p.x << ", " << p.y << ")\n";
 #if IMSHOW
             cv::Scalar ballColor;
-            if (detections[i].classId == 0)
+            if (detections[i].classId == 3)
                 ballColor = cv::Scalar(0, 0, 255);  // red fill
-            else if (detections[i].classId == 1)
-                ballColor = cv::Scalar(255, 222, 33);  // yellow fill
             else if (detections[i].classId == 2)
+                ballColor = cv::Scalar(255, 222, 33);  // yellow fill
+            else if (detections[i].classId == 1)
                 ballColor = cv::Scalar(255, 255, 255);  // cue fill
             else
                 ballColor = cv::Scalar(0, 0, 0);  // black fill

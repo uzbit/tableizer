@@ -1,4 +1,5 @@
-yolov5/
+tableizer/
+yolo*
 .vscode/
 lib/build
 __pycache__

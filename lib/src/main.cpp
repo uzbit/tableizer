@@ -18,7 +18,8 @@ int main(int argc, char* argv[]) {
 
     std::string directory = argv[1];
 
-    const string modelPath = "lib/models/detection_model.torchscript.pt";
+    const string modelPath =
+        "/Users/uzbit/Documents/projects/tableizer/tableizer/exp5/weights/best.torchscript";
     BallDetector ballDetector(modelPath);
 
     for (const auto& entry : fs::directory_iterator(directory)) {

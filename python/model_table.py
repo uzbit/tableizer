@@ -1,18 +1,32 @@
 #!/usr/bin/env python3
 """
-model_table.py – Build a *four-class* YOLOv5 model for
-(pool) stripes, solids, cue ball, and black ball.
+model_table.py – Train a *four-class* pool-ball detector
+(stripe, solid, cue, black) with the modern Ultralytics YOLO API
+(v8, v9, v10 … anything the wheel ships).
 
 Author: ChatGPT (o3)
 """
 
 from __future__ import annotations
-import argparse, shutil, random, subprocess, sys, json
+import argparse, shutil, random, json, sys
 from pathlib import Path
 from typing import Dict, List, Tuple
 from collections import defaultdict
 import warnings
+import yaml 
+
 warnings.filterwarnings("ignore")
+
+# ──────────────────────────────────────────────────────────
+# 0.  Optional: ensure ultralytics is installed
+# ──────────────────────────────────────────────────────────
+try:
+    from ultralytics import YOLO
+except ImportError:
+    sys.exit(
+        "❌  Ultralytics package missing. "
+        "Activate the venv and run: pip install -U ultralytics"
+    )
 
 # ──────────────────────────────────────────────────────────
 # 1.  Label cleaning & remapping
@@ -21,7 +35,6 @@ class LabelRemapper:
     """
     Drops unwanted classes and remaps the remaining ones to {0,1,2,3}
     """
-
     def __init__(
         self,
         srcImgDir: Path,
@@ -30,10 +43,8 @@ class LabelRemapper:
         oldToNewMap: Dict[int, int],
         imgExts: Tuple[str, ...] = (".jpg", ".jpeg", ".png"),
     ) -> None:
-        self.srcImgDir = srcImgDir
-        self.srcLblDir = srcLblDir
-        self.dstRoot = dstRoot
-        self.oldToNewMap = oldToNewMap
+        self.srcImgDir, self.srcLblDir = srcImgDir, srcLblDir
+        self.dstRoot, self.oldToNewMap = dstRoot, oldToNewMap
         self.imgExts = imgExts
         self.dstImgDir = dstRoot / "images_all"
         self.dstLblDir = dstRoot / "labels_all"
@@ -41,272 +52,239 @@ class LabelRemapper:
         self.dstLblDir.mkdir(parents=True, exist_ok=True)
 
     def _remap_file(self, lblPath: Path, imgPath: Path) -> bool:
-        """
-        Returns True if at least one line survived the filter.
-        """
         outLines: List[str] = []
-        with lblPath.open() as fp:
-            for line in fp:
-                if not line.strip():
-                    continue
-                oldId, *rest = line.strip().split()
-                oldId = int(oldId)
-                if oldId not in self.oldToNewMap:
-                    # unwanted (e.g., diamonds) → skip
-                    continue
-                newId = self.oldToNewMap[oldId]
-                outLines.append(" ".join([str(newId), *rest]))
+        for line in lblPath.read_text().splitlines():
+            if not line.strip():
+                continue
+            oldId, *rest = line.split()
+            oldId = int(oldId)
+            if oldId not in self.oldToNewMap:  # e.g. diamonds
+                continue
+            newId = self.oldToNewMap[oldId]
+            outLines.append(" ".join([str(newId), *rest]))
         if not outLines:
-            return False  # no valid objects, skip this image
+            return False  # skip images with no target objects
 
-        # copy image + write new label
-        newImg = self.dstImgDir / imgPath.name
-        newLbl = self.dstLblDir / lblPath.name
-        shutil.copy2(imgPath, newImg)
-        newLbl.write_text("\n".join(outLines) + "\n")
+        shutil.copy2(imgPath, self.dstImgDir / imgPath.name)
+        (self.dstLblDir / lblPath.name).write_text("\n".join(outLines) + "\n")
         return True
 
     def run(self) -> None:
-        labelFiles = sorted(self.srcLblDir.glob("*.txt"))
-        dropped, kept = 0, 0
-        for lbl in labelFiles:
-            imgName = lbl.stem + ".jpg"  # default
+        dropped = kept = 0
+        for lbl in sorted(self.srcLblDir.glob("*.txt")):
+            # find corresponding image
             for ext in self.imgExts:
-                candidate = self.srcImgDir / (lbl.stem + ext)
-                if candidate.exists():
-                    imgName = candidate.name
+                imgPath = self.srcImgDir / f"{lbl.stem}{ext}"
+                if imgPath.exists():
                     break
-            imgPath = self.srcImgDir / imgName
-            if not imgPath.exists():
-                print(f"[WARN] image missing for {lbl}", file=sys.stderr)
-                continue
-            if self._remap_file(lbl, imgPath):
-                kept += 1
             else:
-                dropped += 1
-        print(f"[LabelRemapper] kept {kept} imgs, dropped {dropped} (no target classes)")
-
+                print(f"[WARN] missing image for {lbl}")
+                continue
+            kept += self._remap_file(lbl, imgPath)
+            dropped += 1 - kept
+        print(f"[LabelRemapper] kept {kept} imgs, dropped {dropped}")
 
 # ──────────────────────────────────────────────────────────
 # 2.  Train/val/test split
 # ──────────────────────────────────────────────────────────
 class DataSplitter:
-    """
-    Stratified split so each subset has roughly the same class distribution.
-    """
-
+    """Stratified split so each subset has ≈ same class histogram."""
     def __init__(
         self,
         allImgDir: Path,
         allLblDir: Path,
         dstRoot: Path,
-        split: Tuple[float, float, float] = (0.8, 0.15, 0.05),
-        seed: int = 42,
-    ) -> None:
-        self.allImgDir = allImgDir
-        self.allLblDir = allLblDir
-        self.dstRoot = dstRoot
-        self.split = split
+        split=(0.8, 0.15, 0.05),
+        seed=42,
+    ):
+        self.allImgDir, self.allLblDir = allImgDir, allLblDir
+        self.dstRoot, self.split = dstRoot, split
         random.seed(seed)
 
-    def _collect_by_major_class(self) -> Dict[int, List[str]]:
-        """
-        Groups image filenames by *first* class appearing in its label.
-        Simple but works fine for stratification.
-        """
+    def _collect(self) -> Dict[int, List[str]]:
         buckets = defaultdict(list)
-        for lblPath in self.allLblDir.glob("*.txt"):
-            firstCls = int(lblPath.read_text().split()[0])
-            buckets[firstCls].append(lblPath.stem)
+        for lbl in self.allLblDir.glob("*.txt"):
+            cls0 = int(lbl.read_text().split()[0])
+            buckets[cls0].append(lbl.stem)
         return buckets
 
-    def _write_subset(self, subset: str, stems: List[str]) -> None:
-        imgDst = self.dstRoot / "images" / subset
-        lblDst = self.dstRoot / "labels" / subset
-        imgDst.mkdir(parents=True, exist_ok=True)
-        lblDst.mkdir(parents=True, exist_ok=True)
-        for stem in stems:
-            shutil.move(str(self.allImgDir / f"{stem}.jpg"), imgDst / f"{stem}.jpg")
-            shutil.move(str(self.allLblDir / f"{stem}.txt"), lblDst / f"{stem}.txt")
+    def _dump(self, subset: str, stems: List[str]):
+        (self.dstRoot / f"images/{subset}").mkdir(parents=True, exist_ok=True)
+        (self.dstRoot / f"labels/{subset}").mkdir(parents=True, exist_ok=True)
+        for s in stems:
+            shutil.move(str(self.allImgDir / f"{s}.jpg"),
+                        self.dstRoot / f"images/{subset}/{s}.jpg")
+            shutil.move(str(self.allLblDir / f"{s}.txt"),
+                        self.dstRoot / f"labels/{subset}/{s}.txt")
 
-    def run(self) -> None:
-        buckets = self._collect_by_major_class()
+    def run(self):
         train, val, test = [], [], []
-        for stems in buckets.values():
+        for stems in self._collect().values():
             random.shuffle(stems)
             n = len(stems)
-            nTrain = int(self.split[0] * n)
-            nVal   = int(self.split[1] * n)
-            train += stems[:nTrain]
-            val   += stems[nTrain:nTrain + nVal]
-            test  += stems[nTrain + nVal :]
-        self._write_subset("train", train)
-        self._write_subset("val",   val)
-        self._write_subset("test",  test)
-        print(f"[DataSplitter] moved {len(train)} train, {len(val)} val, {len(test)} test images")
-
+            nTr, nVal = int(self.split[0]*n), int(self.split[1]*n)
+            train += stems[:nTr]
+            val   += stems[nTr:nTr+nVal]
+            test  += stems[nTr+nVal:]
+        self._dump("train", train)
+        self._dump("val",   val)
+        self._dump("test",  test)
+        print(f"[DataSplitter] train:{len(train)}  val:{len(val)}  test:{len(test)}")
 
 # ──────────────────────────────────────────────────────────
 # 3.  data.yaml writer
 # ──────────────────────────────────────────────────────────
 class YamlWriter:
-    def __init__(self, datasetRoot: Path, names: List[str]) -> None:
-        self.datasetRoot = datasetRoot
-        self.names = names
-
+    def __init__(self, root: Path, names: List[str]): self.root, self.names = root, names
     def write(self) -> Path:
-        content = {
-            "path": str(self.datasetRoot),
+        path = self.root / "data.yaml"
+        yaml = {
+            "path": str(self.root),
             "train": "images/train",
             "val":   "images/val",
             "test":  "images/test",
             "nc": len(self.names),
             "names": self.names,
         }
-        yamlPath = self.datasetRoot / "data.yaml"
-        yamlPath.write_text(json.dumps(content, indent=2).replace('"', ""))
-        print(f"[YamlWriter] wrote {yamlPath}")
-        return yamlPath
-
+        path.write_text(json.dumps(yaml, indent=2).replace('"', ""))
+        print(f"[YamlWriter] wrote {path}")
+        return path
 
 # ──────────────────────────────────────────────────────────
-# 4.  Training wrapper
+# 4.  Ultralytics trainer wrapper
 # ──────────────────────────────────────────────────────────
-class Yolo5Trainer:
-    """
-    Thin wrapper around Ultralytics train.py
-    """
-
+class UltraTrainer:
+    """Thin wrapper around `ultralytics.YOLO(...).train()`."""
     def __init__(
         self,
-        repoDir: Path,
+        model: str,
         dataYaml: Path,
-        hypYaml: Path,
-        weights: str = "yolov5s.pt",
-        epochs: int = 150,
-        imgSize: int = 640,
-        batch: int = 16,
-        project: str = "tableizer",
-        name: str = "exp",
-    ) -> None:
-        self.repoDir = repoDir
-        self.dataYaml = dataYaml
-        self.hypYaml = hypYaml
-        self.weights = weights
-        self.epochs = epochs
-        self.imgSize = imgSize
-        self.batch = batch
-        self.project = project
-        self.name = name
-
-    def _clone_repo_if_needed(self) -> None:
-        if (self.repoDir / "train.py").exists():
-            return
-        print("[Yolo5Trainer] cloning Ultralytics YOLOv5 …")
-        subprocess.run(
-            ["git", "clone", "https://github.com/ultralytics/yolov5", str(self.repoDir)],
-            check=True,
+        hypYaml: str | None,
+        *,
+        epochs=150,
+        imgsz=800,
+        batch=16,
+        device="mps",          # "cpu", "mps", "0", "0,1"
+        workers=40,
+        project="tableizer",
+        name="exp",
+        cache=True,
+    ):
+        self.model, self.dataYaml, self.hypYaml = model, dataYaml, hypYaml
+        self.kw = dict(
+            data   = str(dataYaml),
+            epochs = epochs,
+            imgsz  = imgsz,
+            batch  = batch,
+            device = device,
+            workers= workers,
+            project= project,
+            name   = name,
+            cache  = cache,
         )
-        subprocess.run([sys.executable, "-m", "pip", "install", "-qr", "requirements.txt"],
-                       cwd=self.repoDir, check=True)
+        if hypYaml:
+            hypPath = Path(hypYaml).expanduser()
+            if not hypPath.exists():
+                raise FileNotFoundError(hypPath)
+            with hypPath.open() as fp:
+                self.kw.update(yaml.safe_load(fp))
 
-    def train(self) -> None:
-        self._clone_repo_if_needed()
-        cmd = [
-            sys.executable, "train.py",
-            "--img", str(self.imgSize),
-            "--batch", str(self.batch),
-            "--epochs", str(self.epochs),
-            "--data", str(self.dataYaml),
-            "--hyp", str(self.hypYaml),
-            "--weights", self.weights,
-            "--device", "mps",
-            "--workers", "40",
-            "--project", self.project,
-            "--name", self.name,
-            "--cache"
-        ]
-        print("[Yolo5Trainer] launching:", " ".join(cmd))
-        subprocess.run(cmd, cwd=self.repoDir, check=True)
+    
+
+    def filterOnePerClass(self, boxes):
+        """
+        Keep every detection for normal classes (stripe/solid) but
+        ensure at most ONE cue (1) and ONE black (0) -- the one with
+        the highest confidence score.
+        Works with Ultralytics Boxes objects or plain dicts that have .cls and .conf
+        """
+        one_only = {0, 1}                # classes constrained to ≤1 instance
+        best     = {}                    # cls → box with highest conf
+        kept     = []                    # boxes for unconstrained classes
+
+        for b in boxes:
+            cls = int(b.cls)
+            if cls in one_only:
+                # keep the best-confidence box we’ve seen so far
+                if cls not in best or float(b.conf) > float(best[cls].conf):
+                    best[cls] = b
+            else:
+                kept.append(b)           # stripes/solids: keep them all
+
+        # merge and re-sort by confidence (optional but nice)
+        kept.extend(best.values())
+        kept.sort(key=lambda x: float(x.conf), reverse=True)
+        return kept
+    
+    def onePerClassCallback(self, trainer):
+        print("$$$$$$$$$ CALLED onePerClassCallback $$$$$$$$$")
+        for r in trainer.pred:
+            r.boxes = self.filterOnePerClass(r.boxes)
+
+    def train(self):
+        print("[UltraTrainer] starting training with:", self.kw)
+        model = YOLO(self.model)
+        model.add_callback("on_predict_postprocess_end", self.onePerClassCallback)
+        model.train(**self.kw)
 
 # ──────────────────────────────────────────────────────────
 # 5.  Orchestration / CLI
 # ──────────────────────────────────────────────────────────
-def main() -> None:
-    parser = argparse.ArgumentParser(description="Build 4-class YOLOv5 pool model")
-    parser.add_argument("--config", default=None,
-                        help="Optional JSON file overriding the CONFIG dict")
-    args = parser.parse_args()
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--config", help="override default JSON config")
+    args = ap.parse_args()
 
-    # Default config (override with --config FILE.json)
+    # ---------- default config ----------
     CONFIG = {
         "srcImgDir": "data/pix2pocket/images",
         "srcLblDir": "data/pix2pocket/labels",
         "dstRoot":   "/tmp/workdir",
-        # keys = original IDs, vals = new IDs 0-3
-        # Adjust to match *your* original label scheme!
-        "oldToNewMap": {
-            4: 3, #9: 0, 10: 0, 11: 0, 12: 0, 13: 0, 14: 0, 15: 0,   # Stripes 
-            3: 2, #1: 1, 2: 1, 3: 1, 4: 1, 5: 1, 6: 1, 7: 1,         # Solids  
-            1: 1,                                             # Cue     
-            0: 0,                                             # Black   
-        },
-        "classNames": ["stripe", "solid", "cue", "black"][::-1],
+        # original-id → new-id
+        "oldToNewMap": {4:3, 3:2, 1:1, 0:0},     # adjust as needed
+        "classNames": ["black", "cue", "solid", "stripe"],  # id 0→black …
         "split": [0.8, 0.15, 0.05],
         "trainer": {
-            "hyp": "data/hyps/hyp.custom.yaml",
-            "repoDir": "yolov5",
-            "weights": "yolov5s.pt",
-            "epochs": 200,
-            "imgSize": 800,
-            "batch": 20,
+            "model":   "yolov10s.pt",        # or yolov8s.pt, yolov9c.pt …
+            "hyp":     "data/hyps/hyp.custom.yaml",  # optional
+            "epochs":  10,
+            "imgsz":   800,
+            "batch":   20,
+            "device":  "mps",
+            "workers": 40,
             "project": "tableizer",
-            "name": "8ball",
-        }
+            "name":    "exp",
+        },
     }
-
+    # ---------- override ----------
     if args.config:
         CONFIG.update(json.loads(Path(args.config).read_text()))
 
-    # Paths
-    srcImgDir = Path(CONFIG["srcImgDir"]).expanduser()
-    srcLblDir = Path(CONFIG["srcLblDir"]).expanduser()
-    dstRoot   = Path(CONFIG["dstRoot"]).expanduser()
-    dstRoot.mkdir(exist_ok=True)
+    srcImgDir, srcLblDir = map(lambda p: Path(p).expanduser(),
+                               (CONFIG["srcImgDir"], CONFIG["srcLblDir"]))
+    dstRoot = Path(CONFIG["dstRoot"]).expanduser(); dstRoot.mkdir(exist_ok=True)
 
     # 1. remap labels
-    LabelRemapper(
-        srcImgDir=srcImgDir,
-        srcLblDir=srcLblDir,
-        dstRoot=dstRoot,
-        oldToNewMap=CONFIG["oldToNewMap"],
-    ).run()
-
+    LabelRemapper(srcImgDir, srcLblDir, dstRoot, CONFIG["oldToNewMap"]).run()
     # 2. split
-    DataSplitter(
-        allImgDir=dstRoot / "images_all",
-        allLblDir=dstRoot / "labels_all",
-        dstRoot=dstRoot,
-        split=tuple(CONFIG["split"]),
-    ).run()
-
+    DataSplitter(dstRoot/"images_all", dstRoot/"labels_all", dstRoot,
+                 split=tuple(CONFIG["split"])).run()
     # 3. yaml
     dataYaml = YamlWriter(dstRoot, CONFIG["classNames"]).write()
-
     # 4. train
-    trainerCfg = CONFIG["trainer"]
-    Yolo5Trainer(
-        repoDir=Path(trainerCfg["repoDir"]),
-        dataYaml=dataYaml,
-        hypYaml=trainerCfg["hyp"],
-        weights=trainerCfg["weights"],
-        epochs=trainerCfg["epochs"],
-        imgSize=trainerCfg["imgSize"],
-        batch=trainerCfg["batch"],
-        project=trainerCfg["project"],
-        name=trainerCfg["name"],
+    t = CONFIG["trainer"]
+    UltraTrainer(
+        model   = t["model"],
+        dataYaml= dataYaml,
+        hypYaml = t["hyp"],
+        epochs  = t["epochs"],
+        imgsz   = t["imgsz"],
+        batch   = t["batch"],
+        device  = t["device"],
+        workers = t["workers"],
+        project = t["project"],
+        name    = t["name"],
     ).train()
-
 
 if __name__ == "__main__":
     main()
