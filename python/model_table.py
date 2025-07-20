@@ -181,6 +181,7 @@ class Yolo5Trainer:
         self,
         repoDir: Path,
         dataYaml: Path,
+        hypYaml: Path,
         weights: str = "yolov5s.pt",
         epochs: int = 150,
         imgSize: int = 640,
@@ -190,6 +191,7 @@ class Yolo5Trainer:
     ) -> None:
         self.repoDir = repoDir
         self.dataYaml = dataYaml
+        self.hypYaml = hypYaml
         self.weights = weights
         self.epochs = epochs
         self.imgSize = imgSize
@@ -216,6 +218,7 @@ class Yolo5Trainer:
             "--batch", str(self.batch),
             "--epochs", str(self.epochs),
             "--data", str(self.dataYaml),
+            "--hyp", str(self.hypYaml),
             "--weights", self.weights,
             "--device", "mps",
             "--workers", "40",
@@ -248,13 +251,14 @@ def main() -> None:
             1: 1,                                             # Cue     
             0: 0,                                             # Black   
         },
-        "classNames": ["stripe", "solid", "cue", "black"],
+        "classNames": ["stripe", "solid", "cue", "black"][::-1],
         "split": [0.8, 0.15, 0.05],
         "trainer": {
+            "hyp": "data/hyps/hyp.custom.yaml",
             "repoDir": "yolov5",
             "weights": "yolov5s.pt",
-            "epochs": 100,
-            "imgSize": 640,
+            "epochs": 200,
+            "imgSize": 800,
             "batch": 20,
             "project": "tableizer",
             "name": "8ball",
@@ -294,6 +298,7 @@ def main() -> None:
     Yolo5Trainer(
         repoDir=Path(trainerCfg["repoDir"]),
         dataYaml=dataYaml,
+        hypYaml=trainerCfg["hyp"],
         weights=trainerCfg["weights"],
         epochs=trainerCfg["epochs"],
         imgSize=trainerCfg["imgSize"],
