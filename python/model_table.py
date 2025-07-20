@@ -302,9 +302,6 @@ def main() -> None:
         name=trainerCfg["name"],
     ).train()
 
-    # 5. plot
-    runDir = Path(trainerCfg["repoDir"]) / trainerCfg["project"] / trainerCfg["name"]
-    MetricsPlotter(runDir).plot()
 
 if __name__ == "__main__":
     main()
