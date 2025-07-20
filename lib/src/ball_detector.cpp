@@ -20,7 +20,7 @@ BallDetector::BallDetector(const string& modelPath) : device(torch::kCPU) {
 
 vector<Detection> BallDetector::detect(const Mat& image, float confThreshold, float iouThreshold) {
     // ───────────────────────────────────────────────────────── 1. Letter-box to kTarget×kTarget
-    constexpr int kTarget = 800;
+    constexpr int kTarget = 640;
     const int origW = image.cols;
     const int origH = image.rows;
 

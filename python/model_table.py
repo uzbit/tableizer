@@ -162,7 +162,7 @@ class UltraTrainer:
         hypYaml: str | None,
         *,
         epochs=150,
-        imgsz=800,
+        imgsz=640,
         batch=16,
         device="mps",          # "cpu", "mps", "0", "0,1"
         workers=40,
@@ -247,8 +247,8 @@ def main():
         "trainer": {
             "model":   "yolov10s.pt",        # or yolov8s.pt, yolov9c.pt …
             "hyp":     "data/hyps/hyp.custom.yaml",  # optional
-            "epochs":  10,
-            "imgsz":   800,
+            "epochs":  100,
+            "imgsz":   640,
             "batch":   20,
             "device":  "mps",
             "workers": 40,
