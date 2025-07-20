@@ -237,8 +237,8 @@ def main():
 
     # ---------- default config ----------
     CONFIG = {
-        "srcImgDir": "data/pix2pocket/images",
-        "srcLblDir": "data/pix2pocket/labels",
+        "srcImgDir": "data/pix2pockets/images",
+        "srcLblDir": "data/pix2pockets/labels",
         "dstRoot":   "/tmp/workdir",
         # original-id → new-id
         "oldToNewMap": {4:3, 3:2, 1:1, 0:0},     # adjust as needed
