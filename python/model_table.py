@@ -70,7 +70,7 @@ class LabelRemapper:
         return True
 
     def run(self) -> None:
-        dropped = kept = 0
+        kept = dropped = 0
         for lbl in sorted(self.srcLblDir.glob("*.txt")):
             # find corresponding image
             for ext in self.imgExts:
@@ -80,8 +80,13 @@ class LabelRemapper:
             else:
                 print(f"[WARN] missing image for {lbl}")
                 continue
-            kept += self._remap_file(lbl, imgPath)
-            dropped += 1 - kept
+
+            # remap_file returns True if the label survives
+            if self._remap_file(lbl, imgPath):
+                kept += 1          # count this image as kept
+            else:
+                dropped += 1       # label had no target classes
+
         print(f"[LabelRemapper] kept {kept} imgs, dropped {dropped}")
 
 # ──────────────────────────────────────────────────────────
@@ -224,7 +229,7 @@ class UltraTrainer:
     def train(self):
         print("[UltraTrainer] starting training with:", self.kw)
         model = YOLO(self.model)
-        model.add_callback("on_predict_postprocess_end", self.onePerClassCallback)
+        # model.add_callback("on_predict_postprocess_end", self.onePerClassCallback)
         model.train(**self.kw)
 
 # ──────────────────────────────────────────────────────────
@@ -245,13 +250,13 @@ def main():
         "classNames": ["black", "cue", "solid", "stripe"],  # id 0→black …
         "split": [0.8, 0.15, 0.05],
         "trainer": {
-            "model":   "yolov10s.pt",        # or yolov8s.pt, yolov9c.pt …
+            "model":   "yolov9s.pt",        # or yolov8s.pt, yolov9c.pt …
             "hyp":     "data/hyps/hyp.custom.yaml",  # optional
-            "epochs":  100,
+            "epochs":  25,
             "imgsz":   640,
             "batch":   20,
             "device":  "mps",
-            "workers": 40,
+            "workers": 100,
             "project": "tableizer",
             "name":    "exp",
         },
