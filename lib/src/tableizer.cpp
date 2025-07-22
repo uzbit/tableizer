@@ -70,7 +70,7 @@ int runTableizerForImage(Mat image, BallDetector ballDetector) {
     // --- Ball detection & drawing --------------------------
     // 4. Detect balls **on the original image**
     cout << "--- Step 3: Ball Detection ---" << endl;
-    const vector<Detection> detections = ballDetector.detect(image);
+    const vector<Detection> detections = ballDetector.detect(image, 0.6, 0.5);
     cout << "Found " << detections.size() << " balls after non-maximum suppression.\n\n";
 
     // 5. Build transform: original-pixel  ➜  table_detection  ➜  canonical table

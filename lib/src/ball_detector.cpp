@@ -16,6 +16,9 @@ BallDetector::BallDetector(const string& modelPath) : device(torch::kCPU) {
         exit(-1);
     }
 }
+
+inline float sigmoid(float x) { return 1.f / (1.f + std::exp(-x)); }
+
 // Assumes Detection { Rect2f box; float confidence; int classId; }
 std::vector<Detection> BallDetector::detect(const cv::Mat& image, float confThreshold,
                                             float iouThreshold) {
@@ -46,7 +49,19 @@ std::vector<Detection> BallDetector::detect(const cv::Mat& image, float confThre
     const int N = out.size(0);
 
     for (int i = 0; i < N; ++i) {
-        float obj = a[i][4];
+        float best = 0.f;
+        int cls = -1;
+        for (int c = 0; c < 4; ++c) {
+            float p = sigmoid(a[i][4 + c]);  // ← add sigmoid
+            if (p > best) {
+                best = p;
+                cls = c;
+            }
+        }
+        float conf = best;
+        if (conf < confThreshold) continue;
+
+        /*float obj = a[i][4];
         float best = 0.f;
         int cls = -1;
         for (int c = 0; c < 4; ++c)
@@ -57,6 +72,7 @@ std::vector<Detection> BallDetector::detect(const cv::Mat& image, float confThre
 
         float conf = obj * best;
         if (conf < confThreshold) continue;  // skip low-conf
+        */
 
         /* cx cy w h  →  x1 y1 x2 y2 in letter-box space */
         float cx = a[i][0], cy = a[i][1], w = a[i][2], h = a[i][3];

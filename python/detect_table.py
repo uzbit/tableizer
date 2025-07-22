@@ -396,7 +396,7 @@ def getBalls(origImgPath, warpImg, H):
 
     # ---------- run detector on ORIGINAL frame ------------------------------
     origBgr, dets = get_detection(
-        origImgPath, model, post_process=True, conf_thresh=0.01, iou_thresh=0.5
+        origImgPath, model, post_process=True, conf_thresh=0.4, iou_thresh=0.05
     )
 
     # keep only balls

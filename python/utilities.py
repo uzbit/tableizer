@@ -21,7 +21,7 @@ ballImageBgrs = [
     solid_circle((0, 255, 255)),   # yellow
     solid_circle((255,255,255)),   # cue (white)
     solid_circle((0,   0,   0)),   # black
-]
+][::-1]
 
 def orderQuad(pts):
     """
@@ -196,91 +196,121 @@ def bb_IoU(bboxA, bboxB):
     return iou
 
 
-def load_detection_model(model_path):
-    model = torch.hub.load(
-        "ultralytics/yolov5", "custom", path=model_path
-    )  # local model
-    model.eval()
+from ultralytics import YOLO
+import torch
 
-    # torchhub messes with matplotlib
-    # %matplotlib inline
+def load_detection_model(model_path: str, device: str = None):
+    """
+    Load a YOLO-v8/9 .pt file (or .pt/.onnx/.torchscript after export).
+
+    Parameters
+    ----------
+    model_path : str
+        Path to your trained weight file, e.g. "runs/detect/exp/weights/best.pt".
+    device : str, optional
+        "cpu", "cuda:0", "mps", …  If ``None`` it follows torch.cuda.is_available().
+
+    Returns
+    -------
+    YOLO
+        An Ultralytics YOLO object ready for inference:  results = model(img)
+    """
+    # Pick a sensible default device
+    if device is None:
+        device = "cuda:0" if torch.cuda.is_available() else "cpu"
+
+    model = YOLO(model_path)        # loads v8/v9 weight in eval mode
+    model.to(device)                # move once; Ultralytics handles dtype
+    model.fuse()                    # optional: fuse Conv+BN for speed
     return model
 
-
 def get_detection(
-    im_path,
-    model,
-    post_process=True,
-    conf_thresh=0.4,
-    iou_thresh=0.5,
-    output_format="center",
+    im_path: str,
+    model: YOLO,
+    *,
+    post_process: bool = True,
+    conf_thresh: float = 0.4,
+    iou_thresh: float = 0.5,
+    output_format: str = "center",  # 'center' or 'corner'
 ):
+    """
+    Run YOLO-v8/v9 inference on one image and return (BGR image, detections).
+
+    Parameters
+    ----------
+    im_path : str
+        Path to the input picture.
+    model : ultralytics.YOLO
+        A YOLO object in eval mode.
+    post_process : bool, default True
+        Whether to run the custom NMS / per-class capping logic.
+    conf_thresh : float
+        Minimum confidence to keep a detection (after post-process).
+    iou_thresh : float
+        IoU threshold for the hand-rolled NMS.
+    output_format : {'center', 'corner'}
+        Whether the first four numbers are (cx,cy,w,h) or (x,y,w,h).
+
+    Returns
+    -------
+    img_bgr : np.ndarray  (H, W, 3)  uint8
+        The original image loaded with cv2 (BGR order).
+    detection : np.ndarray  (N, 6)  float64
+        Columns: x/ cx, y/ cy, w, h, confidence, class_id
+    """
+
+    # -------------------- 1. run inference --------------------
     im = Image.open(im_path)
     results = model(im)
+    boxes   = results[0].boxes
 
-    detection = results.pandas().xyxy[0].to_numpy()
+    xyxy   = boxes.xyxy.cpu().numpy()      # (N,4) x1 y1 x2 y2
+    confs  = boxes.conf.cpu().numpy()      # (N,)
+    clsids = boxes.cls.cpu().numpy()       # (N,)
 
-    xmin = detection[:, 0]
-    ymin = detection[:, 1]
-    xmax = detection[:, 2]
-    ymax = detection[:, 3]
-    w = xmax - xmin
-    h = ymax - ymin
+    # convert xyxy → (x, y, w, h) in corner coords
+    x1, y1, x2, y2 = xyxy.T
+    w, h = x2 - x1, y2 - y1
 
     if output_format == "corner":
-        transformed_boxes = np.array([xmin, ymin, w, h]).T
+        transformed = np.stack([x1, y1, w, h], axis=1)
     elif output_format == "center":
-        x_center = xmin + w / 2
-        y_center = ymin + h / 2
-        transformed_boxes = np.array([x_center, y_center, w, h]).T
+        cx, cy = x1 + w / 2, y1 + h / 2
+        transformed = np.stack([cx, cy, w, h], axis=1)
     else:
-        print(
-            f"output_format must either be 'corner' or 'center'. Your input was {output_format}."
-        )
-    detection[:, :4] = transformed_boxes
+        raise ValueError("output_format must be 'corner' or 'center'.")
 
-    detection = detection[:, :-1].astype(np.float64)
+    # final array: [coords, conf, cls]
+    detection = np.concatenate(
+        [transformed, confs[:, None], clsids[:, None]], axis=1
+    ).astype(np.float64)
 
-    if post_process:
-        detection = detection[
-            detection[:, 4].argsort()[::-1]
-        ]  # Sort according to confidence
+    # -------------------- 2. optional post-process --------------------
+    if post_process and detection.size:
+        # sort by confidence desc
+        detection = detection[detection[:, 4].argsort()[::-1]]
 
-        # Run non-max-suppresion
-        keep_list = np.arange(0, detection.shape[0])
-        remove_list = []
-        iou = bb_IoU(detection[:, :4], detection[:, :4]) - np.eye(detection.shape[0])
-
-        overlaps = np.where((iou >= iou_thresh))
-        overlaps = np.stack(overlaps, 1)
-        for idx1, idx2 in overlaps:
-            conf1 = detection[idx1, 4]
-            conf2 = detection[idx2, 4]
-            if conf1 <= conf2:
-                remove_list.append(idx1)
+        # -- naive NMS (same as original helper) -----------------------
+        keep = np.arange(len(detection))
+        iou  = bb_IoU(detection[:, :4], detection[:, :4]) - np.eye(len(detection))
+        idx1, idx2 = np.where(iou >= iou_thresh)
+        remove = []
+        for i, j in zip(idx1, idx2):
+            if detection[i, 4] <= detection[j, 4]:
+                remove.append(i)
             else:
-                remove_list.append(idx2)
+                remove.append(j)
+        keep = np.setdiff1d(keep, np.unique(remove))
+        detection = detection[keep]
 
-        remove_list = np.unique(remove_list)
-        keep_list = [k for k in keep_list if k not in remove_list]
-
-        detection = detection[keep_list]
-
-        # Keep 7 highest striped and solids 1 cue and black and 18 dots
+        # -- per-class caps -------------------------------------------
         for c, n in zip([0, 1, 2, 3, 4], [7, 7, 1, 1, 18]):
-            idxs = [i for i, x in enumerate(detection[:, 5]) if x == c]
-            keep = idxs[:n]
-            remove = idxs[n:]
-
-            for i in keep:
-                detection[i, 4] = max(
-                    detection[i, 4], conf_thresh
-                )  # We are at least 'conf_thresh' confident about these predictions
-
-            for j in remove:
-                detection[j, 4] = 0.0
-
-        # Remove detections with conf_score less than threshhold
+            idxs = np.where(detection[:, 5] == c)[0]
+            keep, drop = idxs[:n], idxs[n:]
+            detection[keep, 4] = np.maximum(detection[keep, 4], conf_thresh)
+            detection[drop, 4] = 0.0
         detection = detection[detection[:, 4] >= conf_thresh]
+    # ----------------------------------------------------------
 
-    return cv2.imread(str(im_path))[:, :, ::-1], detection
+    img_bgr = cv2.imread(str(im_path))[:, :, ::-1]  # PIL read was RGB; caller expects BGR
+    return img_bgr, detection
