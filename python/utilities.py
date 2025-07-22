@@ -5,31 +5,23 @@ import numpy as np
 import cv2
 
 
-from pdf2image import convert_from_path  # uses Poppler
 import cv2
 import numpy as np
 
 
-def pdfPageToCv2(pdfPath, page=0, dpi=300):
-    """Return a BGR image (OpenCV) of the requested page."""
-    pilPages = convert_from_path(
-        pdfPath, dpi=dpi, first_page=page + 1, last_page=page + 1
-    )
-    if not pilPages:
-        raise ValueError("No such page in PDF")
-    pilImg = pilPages[0]  # PIL.Image
-    rgb = np.array(pilImg)  # RGB H×W×3 uint8
-    bgr = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)  # OpenCV prefers BGR
-    return bgr
-
+def solid_circle(bgr_color, radius=110, size=256):
+    """Return a square BGR image with a filled circle of the given colour."""
+    img = np.zeros((size, size, 3), dtype=np.uint8)
+    cv2.circle(img, center=(size // 2, size // 2), radius=radius,
+               color=bgr_color, thickness=-1, lineType=cv2.LINE_AA)
+    return img
 
 ballImageBgrs = [
-    pdfPageToCv2(Path("../data/red ball.pdf")),
-    pdfPageToCv2(Path("../data/yellow ball.pdf")),
-    pdfPageToCv2(Path("../data/cue ball.pdf")),
-    pdfPageToCv2(Path("../data/black ball.pdf")),
+    solid_circle((0,   0, 255)),   # red   (BGR)
+    solid_circle((0, 255, 255)),   # yellow
+    solid_circle((255,255,255)),   # cue (white)
+    solid_circle((0,   0,   0)),   # black
 ]
-
 
 def orderQuad(pts):
     """

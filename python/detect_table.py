@@ -390,7 +390,8 @@ def getBalls(origImgPath, warpImg, H):
     warpImg     : portrait or landscape cloth image from warpTable
     H           : homography original → warpImg (already includes rotation)
     """
-    modelPath = "/Users/uzbit/Documents/projects/pix2pockets/detection_model_weight/detection_model.pt"
+    #modelPath = "/Users/uzbit/Documents/projects/pix2pockets/detection_model_weight/detection_model.pt"
+    modelPath = "/Users/uzbit/Documents/projects/tableizer/tableizer/exp2/weights/best.pt"
     model = load_detection_model(modelPath)
 
     # ---------- run detector on ORIGINAL frame ------------------------------

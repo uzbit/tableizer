@@ -25,7 +25,7 @@ int runTableizerForImage(Mat image, BallDetector ballDetector) {
     double deltaEThreshold = 20.0;
     CellularTableDetector tableDetector(image.rows, cellSize, deltaEThreshold);
 
-    cout << "--- Step 2: Table Detection ---" << endl;
+    cout << "--- 2: Table Detection ---" << endl;
     cout << "Parameters: resizeHeight=" << resizeHeight << ", cellSize=" << cellSize
          << ", deltaEThreshold=" << deltaEThreshold << endl;
 
@@ -64,12 +64,12 @@ int runTableizerForImage(Mat image, BallDetector ballDetector) {
 #endif
 
     // 3. Warp Table
-    bool rotate = true;
+    bool rotate = false;
     WarpResult warpResult = warpTable(image, quadPoints, "warp.jpg", 840, rotate);
 
     // --- Ball detection & drawing --------------------------
     // 4. Detect balls **on the original image**
-    cout << "--- Step 4: Ball Detection ---" << endl;
+    cout << "--- Step 3: Ball Detection ---" << endl;
     const vector<Detection> detections = ballDetector.detect(image);
     cout << "Found " << detections.size() << " balls after non-maximum suppression.\n\n";
 
@@ -92,7 +92,8 @@ int runTableizerForImage(Mat image, BallDetector ballDetector) {
 
     // 6. Draw predictions on the canonical table and shot-studio template
     // --------------------------------------------------------
-    string studioPath = "data/shotstudio_table_felt_only.png";
+    string studioPath =
+        "/Users/uzbit/Documents/projects/tableizer/data/shotstudio_table_felt_only.png";
     cv::Mat shotStudio = cv::imread(studioPath);
 
     cv::Mat warpedOut = warpResult.warped.clone();  // copy for drawing
@@ -114,7 +115,7 @@ int runTableizerForImage(Mat image, BallDetector ballDetector) {
         vector<cv::Point2f> ballCentresCanonical;
         cv::perspectiveTransform(ballCentresOrig, ballCentresCanonical, Htotal);
 
-        cout << "--- Step 5: Final Ball Locations ---\n";
+        cout << "--- Step 4: Final Ball Locations ---\n";
         float textSize = 3.0;
         for (size_t i = 0; i < ballCentresCanonical.size(); ++i) {
             const auto &p = ballCentresCanonical[i];

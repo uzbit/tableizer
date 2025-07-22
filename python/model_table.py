@@ -256,7 +256,7 @@ def main():
             "imgsz":   640,
             "batch":   20,
             "device":  "mps",
-            "workers": 100,
+            "workers": 16,
             "project": "tableizer",
             "name":    "exp",
         },
