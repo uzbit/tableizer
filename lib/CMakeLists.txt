@@ -18,17 +18,34 @@ include_directories(
     ${TORCH_INCLUDE_DIRS}
 )
 
-# Add executable
-add_executable(tableizer_app src/main.cpp src/tableizer.cpp src/table_detector.cpp src/ball_detector.cpp src/utilities.cpp)
+# # Add executable
+# add_executable(tableizer_app src/main.cpp src/tableizer.cpp src/table_detector.cpp src/ball_detector.cpp src/utilities.cpp)
+# # Link libraries
+# target_link_libraries(tableizer_app
+#     ${OpenCV_LIBS}
+#     ${TORCH_LIBRARIES}
+# )
 
-# Link libraries
-target_link_libraries(tableizer_app
+# # Ensure PyTorch libraries are found at runtime
+# set(CMAKE_INSTALL_RPATH "${TORCH_INSTALL_PREFIX}/lib")
+
+add_library(tableizer SHARED
+    src/tableizer.cpp
+    src/table_detector.cpp
+    src/ball_detector.cpp
+    src/utilities.cpp
+    # expose a C-compatible API in this header:
+    src/tableizer_ffi.cpp
+)
+
+target_link_libraries(tableizer
     ${OpenCV_LIBS}
     ${TORCH_LIBRARIES}
 )
 
-# Ensure PyTorch libraries are found at runtime
 set(CMAKE_INSTALL_RPATH "${TORCH_INSTALL_PREFIX}/lib")
+
+install(TARGETS tableizer DESTINATION ${CMAKE_CURRENT_SOURCE_DIR}/build)
 
 # A message to the user
 message(STATUS "OpenCV version: ${OpenCV_VERSION}")
