@@ -22,8 +22,8 @@ inline float sigmoid(float x) { return 1.f / (1.f + std::exp(-x)); }
 // Assumes Detection { Rect2f box; float confidence; int classId; }
 std::vector<Detection> BallDetector::detect(const cv::Mat& image, float confThreshold,
                                             float iouThreshold) {
-    /* 1. letter-box to 640 × 640 ------------------------------------------------ */
-    constexpr int kTarget = 640;
+    /* 1. letter-box to N × N ------------------------------------------------ */
+    constexpr int kTarget = 800;
     int ow = image.cols, oh = image.rows;
     float r = std::min(float(kTarget) / ow, float(kTarget) / oh);
     int nw = std::round(ow * r), nh = std::round(oh * r);

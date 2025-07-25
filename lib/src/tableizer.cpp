@@ -64,7 +64,7 @@ int runTableizerForImage(Mat image, BallDetector ballDetector) {
 #endif
 
     // 3. Warp Table
-    bool rotate = false;
+    bool rotate = true;
     WarpResult warpResult = warpTable(image, quadPoints, "warp.jpg", 840, rotate);
 
     // --- Ball detection & drawing --------------------------

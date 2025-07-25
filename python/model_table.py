@@ -17,6 +17,9 @@ import yaml
 
 warnings.filterwarnings("ignore")
 
+# EXPORT TORCHSCRIPT WITH:
+# yolo export model=/Users/uzbit/Documents/projects/tableizer/tableizer/exp2/weights/best.pt format=torchscript device=cpu imgsz=800 nms=False agnostic_nms=False
+
 # ──────────────────────────────────────────────────────────
 # 0.  Optional: ensure ultralytics is installed
 # ──────────────────────────────────────────────────────────
@@ -167,7 +170,7 @@ class UltraTrainer:
         hypYaml: str | None,
         *,
         epochs=150,
-        imgsz=640,
+        imgsz=800,
         batch=16,
         device="mps",          # "cpu", "mps", "0", "0,1"
         workers=40,
@@ -252,8 +255,8 @@ def main():
         "trainer": {
             "model":   "yolov9s.pt",        # or yolov8s.pt, yolov9c.pt …
             "hyp":     "data/hyps/hyp.custom.yaml",  # optional
-            "epochs":  25,
-            "imgsz":   640,
+            "epochs":  100,
+            "imgsz":   800,
             "batch":   20,
             "device":  "mps",
             "workers": 16,
