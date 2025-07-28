@@ -40,11 +40,6 @@ android {
     }
 }
 
-dependencies {
-    implementation("org.pytorch:pytorch_android_lite:2.1.0")
-    implementation("org.pytorch:pytorch_android_executorch:2.1.0")
-}
-
 flutter {
     source = "../.."
 }

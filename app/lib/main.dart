@@ -1,8 +1,12 @@
 import 'dart:async';
-
+import 'dart:ffi' as ffi;
+import 'dart:io';
 import 'package:camera/camera.dart';
+import 'package:ffi/ffi.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:path_provider/path_provider.dart';
+import 'tableizer_bindings.dart';
 
 /// Entry-point. Ensure cameras are fetched *before* runApp so that the
 /// [CameraController] can be constructed synchronously.
@@ -31,6 +35,7 @@ class BilliardVisionDemo extends StatefulWidget {
 class _BilliardVisionDemoState extends State<BilliardVisionDemo> {
   late final CameraController _controller;
   late final Future<void> _initialization;
+  late final DetectionService _detectionService;
 
   // Stream of the latest detected balls so the overlay can update in real time.
   final ValueNotifier<List<Ball>> _balls = ValueNotifier<List<Ball>>([]);
@@ -48,7 +53,8 @@ class _BilliardVisionDemoState extends State<BilliardVisionDemo> {
       imageFormatGroup: ImageFormatGroup.yuv420,
     );
 
-    _initialization = _controller.initialize().then((_) {
+    _initialization = _controller.initialize().then((_) async {
+      _detectionService = await DetectionService.create();
       // Start streaming raw YUV420 frames.
       _controller.startImageStream(_handleCameraFrame);
     });
@@ -58,7 +64,7 @@ class _BilliardVisionDemoState extends State<BilliardVisionDemo> {
     if (!_readyForNextFrame) return;
     _readyForNextFrame = false;
     try {
-      final detected = await DetectionService.detectBalls(image);
+      final detected = await _detectionService.detectBalls(image);
       _balls.value = detected;
     } finally {
       // Allow the next frame after ~100 ms (≈ 10 fps analysis).
@@ -71,6 +77,7 @@ class _BilliardVisionDemoState extends State<BilliardVisionDemo> {
   void dispose() {
     _controller.dispose();
     _balls.dispose();
+    _detectionService.dispose();
     super.dispose();
   }
 
@@ -152,28 +159,84 @@ class BallOverlayPainter extends CustomPainter {
 
 /// Singleton façade hiding the platform-specific detection implementation.
 class DetectionService {
-  static const _channel = MethodChannel('com.example.tableizer/detect');
+  final TableizerBindings _bindings;
+  final Pointer<Void> _detector;
 
-  static Future<List<Ball>> detectBalls(CameraImage image) async {
-    try {
-      final result = await _channel.invokeMethod('detect', {
-        'width': image.width,
-        'height': image.height,
-        'planes': image.planes.map((p) => p.bytes).toList(),
-      });
+  DetectionService._(this._bindings, this._detector);
 
-      if (result is List) {
-        return result
-            .map((r) => Ball(
-                  center: Offset(r['x'], r['y']),
-                  radius: r['radius'],
-                  label: 'ball_${r['class_id']}',
-                ))
-            .toList();
-      }
-    } on PlatformException catch (e) {
-      print("Failed to detect balls: '${e.message}'.");
+  static Future<DetectionService> create() async {
+    final dylib = ffi.DynamicLibrary.open('libtableizer.so');
+    final bindings = TableizerBindings(dylib);
+
+    final modelPath = await _getModelPath();
+    final modelPathC = modelPath.toNativeUtf8();
+    final detector = bindings.create_ball_detector.asFunction<ffi.Pointer<ffi.Void> Function(ffi.Pointer<Utf8>)>()(modelPathC);
+    calloc.free(modelPathC);
+
+    return DetectionService._(bindings, detector);
+  }
+
+  void dispose() {
+    _bindings.destroy_ball_detector.asFunction<void Function(ffi.Pointer<ffi.Void>)>()(_detector);
+  }
+
+  Future<List<Ball>> detectBalls(CameraImage image) async {
+    final p0 = image.planes[0].bytes.toPtr();
+    final p1 = image.planes[1].bytes.toPtr();
+    final p2 = image.planes[2].bytes.toPtr();
+
+    final count = calloc<ffi.Int32>();
+    final detections = _bindings.detect_balls.asFunction<ffi.Pointer<Detection> Function(ffi.Pointer<ffi.Void>, ffi.Pointer<ffi.Uint8>, ffi.Pointer<ffi.Uint8>, ffi.Pointer<ffi.Uint8>, ffi.Int32, ffi.Int32, ffi.Int32, ffi.Int32, ffi.Int32, ffi.Int32, ffi.Int32, ffi.Float, ffi.Float, ffi.Pointer<ffi.Int32>)>()(
+        _detector,
+        p0,
+        p1,
+        p2,
+        image.width,
+        image.height,
+        image.planes[0].bytesPerRow,
+        image.planes[1].bytesPerRow,
+        image.planes[2].bytesPerRow,
+        image.planes[1].bytesPerPixel!,
+        image.planes[2].bytesPerPixel!,
+        0.25,
+        0.45,
+        count);
+
+    final result = <Ball>[];
+    for (var i = 0; i < count.value; i++) {
+      final d = detections.elementAt(i).ref;
+      result.add(Ball(
+        center: Offset(d.x, d.y),
+        radius: d.radius,
+        label: 'ball_${d.class_id}',
+      ));
     }
-    return const [];
+
+    _bindings.free_detections.asFunction<void Function(ffi.Pointer<Detection>)>()(detections);
+    calloc.free(count);
+    calloc.free(p0);
+    calloc.free(p1);
+    calloc.free(p2);
+
+    return result;
+  }
+
+  static Future<String> _getModelPath() async {
+    final docDir = await getApplicationDocumentsDirectory();
+    final modelPath = '${docDir.path}/best.onnx';
+    final file = File(modelPath);
+    if (!await file.exists()) {
+      final byteData = await rootBundle.load('assets/best.onnx');
+      await file.writeAsBytes(byteData.buffer.asUint8List());
+    }
+    return modelPath;
+  }
+}
+
+extension on Uint8List {
+  Pointer<Uint8> toPtr() {
+    final ptr = calloc<Uint8>(length);
+    ptr.asTypedList(length).setAll(0, this);
+    return ptr;
   }
 }

@@ -3,7 +3,8 @@ from pathlib import Path
 from PIL import Image
 import numpy as np
 import cv2
-
+from ultralytics import YOLO
+import torch
 
 import cv2
 import numpy as np
@@ -196,8 +197,7 @@ def bb_IoU(bboxA, bboxB):
     return iou
 
 
-from ultralytics import YOLO
-import torch
+
 
 def load_detection_model(model_path: str, device: str = None):
     """

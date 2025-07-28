@@ -1,4 +1,3 @@
-
 #include <algorithm>
 #include <iostream>
 #include <numeric>
@@ -6,6 +5,7 @@
 #include <vector>
 
 #include "ball_detector.hpp"
+#include "../libs/onnxruntime/onnxruntime/include/core/session/onnxruntime_cxx_api.h"
 #include "table_detector.hpp"
 #include "utilities.hpp"
 
@@ -106,7 +106,7 @@ int runTableizerForImage(Mat image, BallDetector ballDetector) {
         // centres in *original* pixel space
         vector<cv::Point2f> ballCentresOrig;
         for (const auto &d : detections) {
-            cv::Point2f p(d.box.x + d.box.width * 0.5f, d.box.y + d.box.height * 0.5f);
+            cv::Point2f p(d.x, d.y);
             ballCentresOrig.emplace_back(p);
             cout << "Ball at @ " << p << "\n";
         }
@@ -119,27 +119,27 @@ int runTableizerForImage(Mat image, BallDetector ballDetector) {
         float textSize = 3.0;
         for (size_t i = 0; i < ballCentresCanonical.size(); ++i) {
             const auto &p = ballCentresCanonical[i];
-            cout << "  • class " << detections[i].classId << " @ (" << p.x << ", " << p.y << ")\n";
+            cout << "  • class " << detections[i].class_id << " @ (" << p.x << ", " << p.y << ")\n";
 #if IMSHOW
             cv::Scalar ballColor;
-            if (detections[i].classId == 3)
+            if (detections[i].class_id == 3)
                 ballColor = cv::Scalar(0, 0, 255);  // red fill
-            else if (detections[i].classId == 2)
+            else if (detections[i].class_id == 2)
                 ballColor = cv::Scalar(255, 222, 33);  // yellow fill
-            else if (detections[i].classId == 1)
+            else if (detections[i].class_id == 1)
                 ballColor = cv::Scalar(255, 255, 255);  // cue fill
             else
                 ballColor = cv::Scalar(0, 0, 0);  // black fill
 
             cv::circle(warpedOut, p, 5, ballColor, cv::LineTypes::LINE_AA);
-            cv::putText(warpedOut, std::to_string(detections[i].classId),
+            cv::putText(warpedOut, std::to_string(detections[i].class_id),
                         p + cv::Point2f(radius + 2, 0), cv::FONT_HERSHEY_SIMPLEX, textSize,
                         textColor, 2);
 
             // draw on studio template (assumes same canvas size)
             if (!shotStudio.empty()) {
                 cv::circle(shotStudio, p, radius, ballColor, cv::FILLED);
-                cv::putText(shotStudio, std::to_string(detections[i].classId),
+                cv::putText(shotStudio, std::to_string(detections[i].class_id),
                             p + cv::Point2f(radius + 2, 0), cv::FONT_HERSHEY_SIMPLEX, textSize,
                             textColor, 2);
             }

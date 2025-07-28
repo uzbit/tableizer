@@ -37,10 +37,12 @@ dependencies:
   camera: ^0.11.2
   ffi: ^2.1.4
   image: ^4.5.4
+  path_provider:
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
+  ffigen: ^11.0.0
 
   # The "flutter_lints" package below contains a set of recommended lints to
   # encourage good coding practices. The lint set provided by the package is
@@ -61,9 +63,8 @@ flutter:
   uses-material-design: true
 
   # To add assets to your application, add an assets section, like this:
-  # assets:
-  #   - images/a_dot_burr.jpeg
-  #   - images/a_dot_ham.jpeg
+  assets:
+    - assets/best.onnx
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images
@@ -100,3 +101,19 @@ ffigen:
   headers:
     entry-points:
       - '../lib/include/tableizer_ffi.h'
+  compiler-opts:
+    - "-x"
+    - "c++"
+    - "-std=c++17"
+    - '-I../lib/libs/onnxruntime/onnxruntime/include'
+    - '-I../lib/libs/OpenCV-android-sdk/sdk/native/jni/include'
+    - '-isysroot'
+    - '/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk'
+    - "-isystem"
+    - "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1"
+    - "-isystem"
+    - "/Library/Developer/CommandLineTools/usr/lib/clang/14.0.3/include"
+    - "-isystem"
+    - "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include"
+    - "-isystem"
+    - "/Library/Developer/CommandLineTools/usr/include"
