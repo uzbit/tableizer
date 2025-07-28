@@ -1,5 +1,7 @@
 #include "ball_detector.hpp"
-#include "../libs/onnxruntime/onnxruntime/include/core/session/onnxruntime_cxx_api.h"
+
+#include <onnxruntime/onnxruntime_cxx_api.h>
+
 #include <opencv2/imgproc/imgproc.hpp>
 #include <vector>
 
@@ -17,7 +19,6 @@ struct BallDetector::Impl {
     Impl(const std::string& modelPath)
         : env(ORT_LOGGING_LEVEL_WARNING, "test"),
           session(env, modelPath.c_str(), Ort::SessionOptions{nullptr}) {
-        
         Ort::AllocatorWithDefaultOptions allocator;
 
         // Get input names
@@ -28,7 +29,7 @@ struct BallDetector::Impl {
             input_node_names_str.push_back(input_name_ptr.get());
         }
         input_node_names.reserve(input_node_names_str.size());
-        for(const auto& s : input_node_names_str) {
+        for (const auto& s : input_node_names_str) {
             input_node_names.push_back(s.c_str());
         }
 
@@ -40,7 +41,7 @@ struct BallDetector::Impl {
             output_node_names_str.push_back(output_name_ptr.get());
         }
         output_node_names.reserve(output_node_names_str.size());
-        for(const auto& s : output_node_names_str) {
+        for (const auto& s : output_node_names_str) {
             output_node_names.push_back(s.c_str());
         }
     }
@@ -70,13 +71,14 @@ std::vector<Detection> BallDetector::detect(const cv::Mat& image, float confThre
     /* 2. Create input tensor ------------------------------------------------- */
     std::vector<int64_t> input_shape = {1, 3, kTarget, kTarget};
     auto memory_info = Ort::MemoryInfo::CreateCpu(OrtArenaAllocator, OrtMemTypeDefault);
-    Ort::Value input_tensor = Ort::Value::CreateTensor<float>(
-        memory_info, (float*)lb.data, lb.total() * lb.channels(), input_shape.data(),
-        input_shape.size());
+    Ort::Value input_tensor =
+        Ort::Value::CreateTensor<float>(memory_info, (float*)lb.data, lb.total() * lb.channels(),
+                                        input_shape.data(), input_shape.size());
 
     /* 3. Run inference ------------------------------------------------------- */
-    auto output_tensors = pimpl->session.Run(Ort::RunOptions{nullptr}, pimpl->input_node_names.data(),
-                                      &input_tensor, 1, pimpl->output_node_names.data(), 1);
+    auto output_tensors =
+        pimpl->session.Run(Ort::RunOptions{nullptr}, pimpl->input_node_names.data(), &input_tensor,
+                           1, pimpl->output_node_names.data(), 1);
 
     /* 4. Parse output -------------------------------------------------------- */
     auto* raw_output = output_tensors[0].GetTensorData<float>();
@@ -120,7 +122,7 @@ std::vector<Detection> BallDetector::detect(const cv::Mat& image, float confThre
     scores.reserve(pre.size());
     for (auto& det : pre) {
         boxes.emplace_back(det.x, det.y, det.radius, det.radius);
-        scores.push_back(det.x); // a dummy value, since confidence is not in the struct
+        scores.push_back(det.x);  // a dummy value, since confidence is not in the struct
     }
 
     std::vector<int> keep;

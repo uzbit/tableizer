@@ -14,7 +14,7 @@ using namespace cv;
 
 #define IMSHOW true
 
-int runTableizerForImage(Mat image, BallDetector ballDetector) {
+int runTableizerForImage(Mat image, BallDetector& ballDetector) {
 #if IMSHOW
     imshow("Table", image);
     waitKey(0);

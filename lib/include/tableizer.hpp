@@ -25,6 +25,6 @@ class TableState {
     std::vector<Ball> balls;
 };
 
-int runTableizerForImage(Mat image, BallDetector ballDetector);
+int runTableizerForImage(Mat image, BallDetector& ballDetector);
 
 #endif  // TABLEIZER_HPP
