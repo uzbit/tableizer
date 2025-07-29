@@ -13,7 +13,7 @@ using namespace std;
 using namespace cv;
 
 #define IMSHOW true
-#define CONF_THRESH 0.4
+#define CONF_THRESH 0.6
 #define IOU_THRESH 0.7
 
 int runTableizerForImage(Mat image, BallDetector &ballDetector) {
@@ -99,8 +99,7 @@ int runTableizerForImage(Mat image, BallDetector &ballDetector) {
     cv::Mat shotStudio = cv::imread(studioPath);
 
     cv::Mat warpedOut = warpResult.warped.clone();  // copy for drawing
-    const int radius = 14;
-    const cv::Scalar textColor(255, 255, 255);  // white id
+    const cv::Scalar textColor(255, 255, 255);      // white id
 
     if (detections.empty()) {
         cout << "No balls detected.\n\n";
@@ -117,28 +116,46 @@ int runTableizerForImage(Mat image, BallDetector &ballDetector) {
         vector<cv::Point2f> ballCentresCanonical;
         cv::perspectiveTransform(ballCentresOrig, ballCentresCanonical, Htotal);
 
+        // --- Compute pixel radius based on table size ---
+        int tableSizeInches = 100;  // change to 78, 88 or 100 for larger tables
+        int longEdgePx = std::max(warpedOut.cols, warpedOut.rows);
+        int ballDiameterPx = std::max(int(round(longEdgePx * (2.25 / tableSizeInches))), 8);
+        int radius = ballDiameterPx / 2;
+
         cout << "--- Step 4: Final Ball Locations ---\n";
-        float textSize = 3.0;
+        float textSize = 0.7 * (radius / 8.0);  // scale font with ball size
+
         for (size_t i = 0; i < ballCentresCanonical.size(); ++i) {
             const auto &p = ballCentresCanonical[i];
             cout << "  • class " << detections[i].classId << " @ (" << p.x << ", " << p.y << ")\n";
+
 #if IMSHOW
             cv::Scalar ballColor;
-            if (detections[i].classId == 3)
-                ballColor = cv::Scalar(0, 0, 255);  // red fill
-            else if (detections[i].classId == 2)
-                ballColor = cv::Scalar(255, 222, 33);  // yellow fill
-            else if (detections[i].classId == 1)
-                ballColor = cv::Scalar(255, 255, 255);  // cue fill
-            else
-                ballColor = cv::Scalar(0, 0, 0);  // black fill
+            switch (detections[i].classId) {
+                case 3:
+                    ballColor = cv::Scalar(0, 0, 255);
+                    break;  // stripe → red
+                case 2:
+                    ballColor = cv::Scalar(255, 222, 33);
+                    break;  // solid → yellow
+                case 1:
+                    ballColor = cv::Scalar(255, 255, 255);
+                    break;  // cue → white
+                case 0:
+                    ballColor = cv::Scalar(0, 0, 0);
+                    break;  // black
+                default:
+                    ballColor = cv::Scalar(128, 128, 128);
+                    break;  // fallback
+            }
 
-            cv::circle(warpedOut, p, 5, ballColor, cv::LineTypes::LINE_AA);
+            // Draw on warpedOut
+            cv::circle(warpedOut, p, radius, ballColor, cv::FILLED, cv::LINE_AA);
             cv::putText(warpedOut, std::to_string(detections[i].classId),
                         p + cv::Point2f(radius + 2, 0), cv::FONT_HERSHEY_SIMPLEX, textSize,
                         textColor, 2);
 
-            // draw on studio template (assumes same canvas size)
+            // Draw on canonical studio
             if (!shotStudio.empty()) {
                 cv::circle(shotStudio, p, radius, ballColor, cv::FILLED);
                 cv::putText(shotStudio, std::to_string(detections[i].classId),

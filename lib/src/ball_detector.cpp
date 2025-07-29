@@ -81,7 +81,7 @@ std::vector<Detection> BallDetector::detect(const cv::Mat& image, float confThre
     auto shape = output_tensors[0].GetTensorTypeAndShapeInfo().GetShape();
     const float* raw = output_tensors[0].GetTensorData<float>();
 
-    int num_attrs = shape[1];  // 8 (cx,cy,w,h,obj,cls0,cls1,cls2,cls3)
+    int num_attrs = shape[1];  // 9 (cx,cy,w,h,obj,cls0,cls1,cls2,cls3)
     int num_preds = shape[2];  // 13125
 
     auto sigmoid = [](float x) { return 1.f / (1.f + std::exp(-x)); };
@@ -92,19 +92,18 @@ std::vector<Detection> BallDetector::detect(const cv::Mat& image, float confThre
         float cy = raw[1 * num_preds + i];
         float w = raw[2 * num_preds + i];
         float h = raw[3 * num_preds + i];
-        float obj = sigmoid(raw[4 * num_preds + i]);
 
         float best_cls = 0.f;
         int class_id = -1;
         for (int j = 0; j < num_classes; ++j) {
-            float cls_score = sigmoid(raw[(5 + j) * num_preds + i]);
+            float cls_score = sigmoid(raw[(4 + j) * num_preds + i]);
             if (cls_score > best_cls) {
                 best_cls = cls_score;
                 class_id = j;
             }
         }
 
-        float conf = obj * best_cls;
+        float conf = best_cls;
         if (conf < confThreshold) continue;
 
         float x1 = (cx - w / 2 - pad_left) / r;
