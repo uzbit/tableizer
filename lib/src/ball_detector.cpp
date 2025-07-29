@@ -1,112 +1,136 @@
 #include "ball_detector.hpp"
 
-#include <torch/torch.h>
+#include <onnxruntime/onnxruntime_cxx_api.h>
 
+#include <opencv2/dnn/dnn.hpp>
 #include <opencv2/imgproc/imgproc.hpp>
 
 using namespace cv;
 
-BallDetector::BallDetector(const string& modelPath) : device(torch::kCPU) {
-    try {
-        module = torch::jit::load(modelPath, device);
-        module.to(device);
-        module.eval();
-    } catch (const c10::Error& e) {
-        cerr << "Error loading the model: " << e.what() << endl;
-        exit(-1);
+// --- PIMPL Implementation ---
+struct BallDetector::Impl {
+    Ort::Env env;
+    Ort::Session session;
+    Ort::AllocatorWithDefaultOptions allocator;
+
+    std::vector<std::string> input_node_names_str;
+    std::vector<const char*> input_node_names;
+    std::vector<std::string> output_node_names_str;
+    std::vector<const char*> output_node_names;
+
+    Impl(const std::string& modelPath)
+        : env(ORT_LOGGING_LEVEL_WARNING, "ball_detector"),
+          session(env, modelPath.c_str(), Ort::SessionOptions{nullptr}) {
+        size_t num_input_nodes = session.GetInputCount();
+        input_node_names_str.reserve(num_input_nodes);
+        for (size_t i = 0; i < num_input_nodes; i++) {
+            auto name = session.GetInputNameAllocated(i, allocator);
+            input_node_names_str.push_back(name.get());
+        }
+        for (const auto& s : input_node_names_str) input_node_names.push_back(s.c_str());
+
+        size_t num_output_nodes = session.GetOutputCount();
+        output_node_names_str.reserve(num_output_nodes);
+        for (size_t i = 0; i < num_output_nodes; i++) {
+            auto name = session.GetOutputNameAllocated(i, allocator);
+            output_node_names_str.push_back(name.get());
+        }
+        for (const auto& s : output_node_names_str) output_node_names.push_back(s.c_str());
     }
-}
+};
 
-inline float sigmoid(float x) { return 1.f / (1.f + std::exp(-x)); }
+// --- Class Implementation ---
+BallDetector::BallDetector(const std::string& modelPath)
+    : pimpl(std::make_unique<Impl>(modelPath)) {}
+BallDetector::~BallDetector() = default;
 
-// Assumes Detection { Rect2f box; float confidence; int classId; }
 std::vector<Detection> BallDetector::detect(const cv::Mat& image, float confThreshold,
                                             float iouThreshold) {
-    /* 1. letter-box to N × N ------------------------------------------------ */
     constexpr int kTarget = 800;
-    int ow = image.cols, oh = image.rows;
-    float r = std::min(float(kTarget) / ow, float(kTarget) / oh);
-    int nw = std::round(ow * r), nh = std::round(oh * r);
-    int pw = (kTarget - nw) / 2, ph = (kTarget - nh) / 2;
+    constexpr int num_classes = 4;
 
-    cv::Mat lb(kTarget, kTarget, CV_8UC3, cv::Scalar(114, 114, 114));
-    cv::resize(image, lb(cv::Rect(pw, ph, nw, nh)), {nw, nh});
-    cv::cvtColor(lb, lb, cv::COLOR_BGR2RGB);
-    lb.convertTo(lb, CV_32F, 1.f / 255);
+    int img_w = image.cols, img_h = image.rows;
+    float r = std::min(float(kTarget) / img_w, float(kTarget) / img_h);
+    int new_w = int(round(img_w * r));
+    int new_h = int(round(img_h * r));
+    int pad_w = kTarget - new_w, pad_h = kTarget - new_h;
+    int pad_left = pad_w / 2, pad_top = pad_h / 2;
 
-    auto tensor = torch::from_blob(lb.data, {1, kTarget, kTarget, 3}, torch::kFloat32)
-                      .to(device)
-                      .permute({0, 3, 1, 2})
-                      .contiguous();
+    // Letterbox manually
+    cv::Mat resized;
+    cv::resize(image, resized, {new_w, new_h}, 0, 0, cv::INTER_LINEAR);
+    cv::Mat input(kTarget, kTarget, CV_8UC3, Scalar(114, 114, 114));
+    resized.copyTo(input(Rect(pad_left, pad_top, new_w, new_h)));
 
-    /* 2. forward – raw head is (1, 8, N) --------------------------------------- */
-    auto out = module.forward({tensor}).toTensor();     // [1,8,N]
-    out = out.squeeze(0).transpose(0, 1).contiguous();  // → [N,8]
+    // Convert to model input format
+    cv::cvtColor(input, input, COLOR_BGR2RGB);
+    input.convertTo(input, CV_32F, 1.f / 255.f);
 
-    /* 3. parse + de-letter-box -------------------------------------------------- */
-    std::vector<Detection> pre;
-    auto a = out.accessor<float, 2>();
-    const int N = out.size(0);
+    cv::Mat blob;
+    dnn::blobFromImage(input, blob);  // NHWC → NCHW, float32
 
-    for (int i = 0; i < N; ++i) {
-        float best = 0.f;
-        int cls = -1;
-        for (int c = 0; c < 4; ++c) {
-            float p = sigmoid(a[i][4 + c]);  // ← add sigmoid
-            if (p > best) {
-                best = p;
-                cls = c;
+    std::vector<int64_t> input_shape = {1, 3, kTarget, kTarget};
+    auto mem_info = Ort::MemoryInfo::CreateCpu(OrtArenaAllocator, OrtMemTypeDefault);
+    Ort::Value input_tensor = Ort::Value::CreateTensor<float>(
+        mem_info, blob.ptr<float>(), blob.total(), input_shape.data(), input_shape.size());
+
+    auto output_tensors =
+        pimpl->session.Run(Ort::RunOptions{nullptr}, pimpl->input_node_names.data(), &input_tensor,
+                           1, pimpl->output_node_names.data(), 1);
+
+    auto shape = output_tensors[0].GetTensorTypeAndShapeInfo().GetShape();
+    const float* raw = output_tensors[0].GetTensorData<float>();
+
+    int num_attrs = shape[1];  // 8 (cx,cy,w,h,obj,cls0,cls1,cls2,cls3)
+    int num_preds = shape[2];  // 13125
+
+    auto sigmoid = [](float x) { return 1.f / (1.f + std::exp(-x)); };
+
+    std::vector<Detection> pre_nms;
+    for (int i = 0; i < num_preds; ++i) {
+        float cx = raw[0 * num_preds + i];
+        float cy = raw[1 * num_preds + i];
+        float w = raw[2 * num_preds + i];
+        float h = raw[3 * num_preds + i];
+        float obj = sigmoid(raw[4 * num_preds + i]);
+
+        float best_cls = 0.f;
+        int class_id = -1;
+        for (int j = 0; j < num_classes; ++j) {
+            float cls_score = sigmoid(raw[(5 + j) * num_preds + i]);
+            if (cls_score > best_cls) {
+                best_cls = cls_score;
+                class_id = j;
             }
         }
-        float conf = best;
+
+        float conf = obj * best_cls;
         if (conf < confThreshold) continue;
 
-        /*float obj = a[i][4];
-        float best = 0.f;
-        int cls = -1;
-        for (int c = 0; c < 4; ++c)
-            if (a[i][5 + c] > best) {
-                best = a[i][5 + c];
-                cls = c;
-            }
+        float x1 = (cx - w / 2 - pad_left) / r;
+        float y1 = (cy - h / 2 - pad_top) / r;
+        float x2 = (cx + w / 2 - pad_left) / r;
+        float y2 = (cy + h / 2 - pad_top) / r;
 
-        float conf = obj * best;
-        if (conf < confThreshold) continue;  // skip low-conf
-        */
+        x1 = std::clamp(x1, 0.f, float(img_w - 1));
+        y1 = std::clamp(y1, 0.f, float(img_h - 1));
+        x2 = std::clamp(x2, 0.f, float(img_w - 1));
+        y2 = std::clamp(y2, 0.f, float(img_h - 1));
 
-        /* cx cy w h  →  x1 y1 x2 y2 in letter-box space */
-        float cx = a[i][0], cy = a[i][1], w = a[i][2], h = a[i][3];
-        float x1 = cx - w * 0.5f, y1 = cy - h * 0.5f;
-        float x2 = cx + w * 0.5f, y2 = cy + h * 0.5f;
-
-        /* undo padding + scale back */
-        x1 = (x1 - pw) / r;
-        y1 = (y1 - ph) / r;
-        x2 = (x2 - pw) / r;
-        y2 = (y2 - ph) / r;
-        x1 = std::clamp(x1, 0.f, float(ow - 1));
-        y1 = std::clamp(y1, 0.f, float(oh - 1));
-        x2 = std::clamp(x2, 0.f, float(ow - 1));
-        y2 = std::clamp(y2, 0.f, float(oh - 1));
-
-        pre.push_back({cv::Rect2f(x1, y1, x2 - x1, y2 - y1), conf, cls});
+        pre_nms.push_back({cv::Rect(Point(x1, y1), Point(x2, y2)), conf, class_id});
     }
 
-    /* 4. OpenCV NMS ------------------------------------------------------------- */
     std::vector<cv::Rect> boxes;
-    boxes.reserve(pre.size());
     std::vector<float> scores;
-    scores.reserve(pre.size());
-    for (auto& d : pre) {
-        boxes.emplace_back(d.box);
+    for (const auto& d : pre_nms) {
+        boxes.push_back(d.box);
         scores.push_back(d.confidence);
     }
 
     std::vector<int> keep;
     cv::dnn::NMSBoxes(boxes, scores, confThreshold, iouThreshold, keep);
 
-    std::vector<Detection> finalDet;
-    finalDet.reserve(keep.size());
-    for (int k : keep) finalDet.push_back(pre[k]);
-    return finalDet;  // pixel coords, cls 0-3
+    std::vector<Detection> final;
+    for (int idx : keep) final.push_back(pre_nms[idx]);
+    return final;
 }

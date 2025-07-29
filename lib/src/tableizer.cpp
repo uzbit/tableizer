@@ -13,8 +13,10 @@ using namespace std;
 using namespace cv;
 
 #define IMSHOW true
+#define CONF_THRESH 0.4
+#define IOU_THRESH 0.7
 
-int runTableizerForImage(Mat image, BallDetector ballDetector) {
+int runTableizerForImage(Mat image, BallDetector &ballDetector) {
 #if IMSHOW
     imshow("Table", image);
     waitKey(0);
@@ -70,7 +72,7 @@ int runTableizerForImage(Mat image, BallDetector ballDetector) {
     // --- Ball detection & drawing --------------------------
     // 4. Detect balls **on the original image**
     cout << "--- Step 3: Ball Detection ---" << endl;
-    const vector<Detection> detections = ballDetector.detect(image, 0.6, 0.5);
+    const vector<Detection> detections = ballDetector.detect(image, CONF_THRESH, IOU_THRESH);
     cout << "Found " << detections.size() << " balls after non-maximum suppression.\n\n";
 
     // 5. Build transform: original-pixel  ➜  table_detection  ➜  canonical table

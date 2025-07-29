@@ -18,7 +18,7 @@ import yaml
 warnings.filterwarnings("ignore")
 
 # EXPORT TORCHSCRIPT WITH:
-# yolo export model=/Users/uzbit/Documents/projects/tableizer/tableizer/exp2/weights/best.pt format=torchscript device=cpu imgsz=800 nms=False agnostic_nms=False
+# yolo export model=/Users/uzbit/Documents/projects/tableizer/tableizer/7/weights/best.pt format=onnx device=cpu imgsz=800 simplify=True dynamic=False
 
 # ──────────────────────────────────────────────────────────
 # 0.  Optional: ensure ultralytics is installed
