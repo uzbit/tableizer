@@ -121,7 +121,8 @@ std::vector<Detection> BallDetector::detect(const cv::Mat& image, float confThre
         x2 = std::clamp(x2, 0.f, float(img_w - 1));
         y2 = std::clamp(y2, 0.f, float(img_h - 1));
 
-        pre_nms.push_back({cv::Rect(Point(x1, y1), Point(x2, y2)), conf, class_id});
+        pre_nms.push_back(
+            {cv::Rect(Point(x1, y1), Point(x2, y2)), Point2f(cx, cy), conf, class_id});
     }
 
     std::vector<cv::Rect> boxes;

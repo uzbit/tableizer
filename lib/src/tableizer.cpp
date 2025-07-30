@@ -4,8 +4,13 @@
 #include <opencv2/opencv.hpp>
 #include <vector>
 
+#ifdef BUILD_SHARED_LIB
+#include <onnxruntime/core/session/onnxruntime_cxx_api.h>
+#else
+#include <onnxruntime/onnxruntime_cxx_api.h>
+#endif
+
 #include "ball_detector.hpp"
-#include "../libs/onnxruntime/onnxruntime/include/core/session/onnxruntime_cxx_api.h"
 #include "table_detector.hpp"
 #include "utilities.hpp"
 
@@ -16,7 +21,7 @@ using namespace cv;
 #define CONF_THRESH 0.6
 #define IOU_THRESH 0.7
 
-int runTableizerForImage(Mat image, BallDetector &ballDetector) {
+int runTableizerForImage(Mat image, BallDetector& ballDetector) {
 #if IMSHOW
     imshow("Table", image);
     waitKey(0);
@@ -44,7 +49,7 @@ int runTableizerForImage(Mat image, BallDetector &ballDetector) {
     std::vector<cv::Point> quadDraw;
     quadDraw.reserve(quadPoints.size());
 
-    for (const auto &pt : quadPoints) quadDraw.emplace_back(cvRound(pt.x), cvRound(pt.y));
+    for (const auto& pt : quadPoints) quadDraw.emplace_back(cvRound(pt.x), cvRound(pt.y));
 
     cv::polylines(tableDetection, quadDraw, true, cv::Scalar(0, 0, 255), 5);
     imshow("Quad Found", tableDetection);
@@ -59,7 +64,7 @@ int runTableizerForImage(Mat image, BallDetector &ballDetector) {
 
 #if IMSHOW
     cout << "Detected table quad corners (in resized image coordinates):" << endl;
-    for (const auto &p : quadPoints) {
+    for (const auto& p : quadPoints) {
         cout << "  - (" << p.x << ", " << p.y << ")" << endl;
     }
     cout << endl;
@@ -106,8 +111,8 @@ int runTableizerForImage(Mat image, BallDetector &ballDetector) {
     } else {
         // centres in *original* pixel space
         vector<cv::Point2f> ballCentresOrig;
-        for (const auto &d : detections) {
-            cv::Point2f p(d.x, d.y);
+        for (const auto& d : detections) {
+            cv::Point2f p(d.box.x + d.box.width / 2, d.box.y + d.box.height / 2);
             ballCentresOrig.emplace_back(p);
             cout << "Ball at @ " << p << "\n";
         }
@@ -126,7 +131,7 @@ int runTableizerForImage(Mat image, BallDetector &ballDetector) {
         float textSize = 0.7 * (radius / 8.0);  // scale font with ball size
 
         for (size_t i = 0; i < ballCentresCanonical.size(); ++i) {
-            const auto &p = ballCentresCanonical[i];
+            const auto& p = ballCentresCanonical[i];
             cout << "  • class " << detections[i].classId << " @ (" << p.x << ", " << p.y << ")\n";
 
 #if IMSHOW
@@ -158,7 +163,7 @@ int runTableizerForImage(Mat image, BallDetector &ballDetector) {
             // Draw on canonical studio
             if (!shotStudio.empty()) {
                 cv::circle(shotStudio, p, radius, ballColor, cv::FILLED);
-                cv::putText(shotStudio, std::to_string(detections[i].class_id),
+                cv::putText(shotStudio, std::to_string(detections[i].classId),
                             p + cv::Point2f(radius + 2, 0), cv::FONT_HERSHEY_SIMPLEX, textSize,
                             textColor, 2);
             }
@@ -178,3 +183,81 @@ int runTableizerForImage(Mat image, BallDetector &ballDetector) {
 
     return 0;
 }
+
+#if BUILD_SHARED_LIB
+#include "tableizer.hpp"
+
+// The FFI functions will interact with the BallDetector class.
+// We return a void* to hide the implementation details from the C interface.
+
+extern "C" {
+void* initialize_detector(const char* model_path) {
+    try {
+        BallDetector* detector = new BallDetector(model_path);
+        return static_cast<void*>(detector);
+    } catch (const std::exception& e) {
+        std::cerr << "Error initializing detector: " << e.what() << std::endl;
+        return nullptr;
+    }
+}
+
+const char* detect_objects(void* detector_ptr, const unsigned char* image_bytes, int width,
+                           int height, int channels) {
+    static std::string result_str;
+    if (!detector_ptr) {
+        result_str = "{\"error\": \"Invalid detector instance\"}";
+        return result_str.c_str();
+    }
+
+    BallDetector* detector = static_cast<BallDetector*>(detector_ptr);
+
+    try {
+        // Create cv::Mat from raw bytes. We assume RGBA (4 channels) from Flutter.
+        cv::Mat image(height, width, CV_8UC4, (void*)image_bytes);
+        if (image.empty()) {
+            result_str = "{\"error\": \"Failed to create image from bytes\"}";
+            return result_str.c_str();
+        }
+
+        // Convert to BGR for processing if needed by the model
+        cv::Mat image_bgr;
+        cv::cvtColor(image, image_bgr, cv::COLOR_RGBA2BGR);
+
+        const auto detections = detector->detect(image_bgr, CONF_THRESH, IOU_THRESH);
+
+        // Format results as a JSON string
+        std::string json = "{\"detections\": [";
+        for (size_t i = 0; i < detections.size(); ++i) {
+            const auto& d = detections[i];
+            json += "{";
+            json += "\"class_id\": " + std::to_string(d.classId) + ", ";
+            json += "\"confidence\": " + std::to_string(d.confidence) + ", ";
+            json += "\"center\": " + std::to_string(d.center) + ", ";
+            json += "\"box\": {\"x\": " + std::to_string(d.box.x) +
+                    ", \"y\": " + std::to_string(d.box.y) +
+                    ", \"width\": " + std::to_string(d.box.width) +
+                    ", \"height\": " + std::to_string(d.box.height) + "}";
+            json += "}";
+            if (i < detections.size() - 1) {
+                json += ", ";
+            }
+        }
+        json += "]}";
+
+        result_str = json;
+        return result_str.c_str();
+
+    } catch (const std::exception& e) {
+        result_str = std::string("{\"error\": \"") + e.what() + "\"}";
+        return result_str.c_str();
+    }
+}
+
+void release_detector(void* detector_ptr) {
+    if (detector_ptr) {
+        BallDetector* detector = static_cast<BallDetector*>(detector_ptr);
+        delete detector;
+    }
+}
+}
+#endif

@@ -12,12 +12,7 @@
 extern "C" {
 
 // Represents a single detection.
-struct Detection {
-    float x;
-    float y;
-    float radius;
-    int class_id;
-};
+// The definition is in ball_detector.hpp
 
 // Creates a BallDetector instance and returns a pointer to it.
 // The model_path is the absolute path to the ONNX model file.

@@ -27,4 +27,22 @@ class TableState {
 
 int runTableizerForImage(Mat image, BallDetector &ballDetector);
 
+// FFI entry points
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+__attribute__((visibility("default"))) __attribute__((used))
+void* initialize_detector(const char* model_path);
+
+__attribute__((visibility("default"))) __attribute__((used))
+const char* detect_objects(void* detector_ptr, const unsigned char* image_bytes, int width, int height, int channels);
+
+__attribute__((visibility("default"))) __attribute__((used))
+void release_detector(void* detector_ptr);
+
+#ifdef __cplusplus
+}
+#endif
+
 #endif  // TABLEIZER_HPP
