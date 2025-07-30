@@ -11,6 +11,7 @@
 #include <vector>
 
 using namespace cv;
+using namespace std;
 
 // --- PIMPL Implementation ---
 struct BallDetector::Impl {
@@ -18,12 +19,12 @@ struct BallDetector::Impl {
     Ort::Session session;
     Ort::AllocatorWithDefaultOptions allocator;
 
-    std::vector<std::string> input_node_names_str;
-    std::vector<const char*> input_node_names;
-    std::vector<std::string> output_node_names_str;
-    std::vector<const char*> output_node_names;
+    vector<string> input_node_names_str;
+    vector<const char*> input_node_names;
+    vector<string> output_node_names_str;
+    vector<const char*> output_node_names;
 
-    Impl(const std::string& modelPath)
+    Impl(const string& modelPath)
         : env(ORT_LOGGING_LEVEL_WARNING, "ball_detector"),
           session(env, modelPath.c_str(), Ort::SessionOptions{nullptr}) {
         size_t num_input_nodes = session.GetInputCount();
@@ -45,36 +46,34 @@ struct BallDetector::Impl {
 };
 
 // --- Class Implementation ---
-BallDetector::BallDetector(const std::string& modelPath)
-    : pimpl(std::make_unique<Impl>(modelPath)) {}
+BallDetector::BallDetector(const string& modelPath) : pimpl(make_unique<Impl>(modelPath)) {}
 BallDetector::~BallDetector() = default;
 
-std::vector<Detection> BallDetector::detect(const cv::Mat& image, float confThreshold,
-                                            float iouThreshold) {
+vector<Detection> BallDetector::detect(const Mat& image, float confThreshold, float iouThreshold) {
     constexpr int kTarget = 800;
     constexpr int num_classes = 4;
 
     int img_w = image.cols, img_h = image.rows;
-    float r = std::min(float(kTarget) / img_w, float(kTarget) / img_h);
+    float r = min(float(kTarget) / img_w, float(kTarget) / img_h);
     int new_w = int(round(img_w * r));
     int new_h = int(round(img_h * r));
     int pad_w = kTarget - new_w, pad_h = kTarget - new_h;
     int pad_left = pad_w / 2, pad_top = pad_h / 2;
 
     // Letterbox manually
-    cv::Mat resized;
-    cv::resize(image, resized, {new_w, new_h}, 0, 0, cv::INTER_LINEAR);
-    cv::Mat input(kTarget, kTarget, CV_8UC3, Scalar(114, 114, 114));
+    Mat resized;
+    resize(image, resized, {new_w, new_h}, 0, 0, INTER_LINEAR);
+    Mat input(kTarget, kTarget, CV_8UC3, Scalar(114, 114, 114));
     resized.copyTo(input(Rect(pad_left, pad_top, new_w, new_h)));
 
     // Convert to model input format
-    cv::cvtColor(input, input, COLOR_BGR2RGB);
+    cvtColor(input, input, COLOR_BGR2RGB);
     input.convertTo(input, CV_32F, 1.f / 255.f);
 
-    cv::Mat blob;
+    Mat blob;
     dnn::blobFromImage(input, blob);  // NHWC → NCHW, float32
 
-    std::vector<int64_t> input_shape = {1, 3, kTarget, kTarget};
+    vector<int64_t> input_shape = {1, 3, kTarget, kTarget};
     auto mem_info = Ort::MemoryInfo::CreateCpu(OrtArenaAllocator, OrtMemTypeDefault);
     Ort::Value input_tensor = Ort::Value::CreateTensor<float>(
         mem_info, blob.ptr<float>(), blob.total(), input_shape.data(), input_shape.size());
@@ -89,9 +88,9 @@ std::vector<Detection> BallDetector::detect(const cv::Mat& image, float confThre
     int num_attrs = shape[1];  // 9 (cx,cy,w,h,obj,cls0,cls1,cls2,cls3)
     int num_preds = shape[2];  // 13125
 
-    auto sigmoid = [](float x) { return 1.f / (1.f + std::exp(-x)); };
+    auto sigmoid = [](float x) { return 1.f / (1.f + exp(-x)); };
 
-    std::vector<Detection> pre_nms;
+    vector<Detection> pre_nms;
     for (int i = 0; i < num_preds; ++i) {
         float cx = raw[0 * num_preds + i];
         float cy = raw[1 * num_preds + i];
@@ -116,26 +115,27 @@ std::vector<Detection> BallDetector::detect(const cv::Mat& image, float confThre
         float x2 = (cx + w / 2 - pad_left) / r;
         float y2 = (cy + h / 2 - pad_top) / r;
 
-        x1 = std::clamp(x1, 0.f, float(img_w - 1));
-        y1 = std::clamp(y1, 0.f, float(img_h - 1));
-        x2 = std::clamp(x2, 0.f, float(img_w - 1));
-        y2 = std::clamp(y2, 0.f, float(img_h - 1));
+        x1 = clamp(x1, 0.f, float(img_w - 1));
+        y1 = clamp(y1, 0.f, float(img_h - 1));
+        x2 = clamp(x2, 0.f, float(img_w - 1));
+        y2 = clamp(y2, 0.f, float(img_h - 1));
 
-        pre_nms.push_back(
-            {cv::Rect(Point(x1, y1), Point(x2, y2)), Point2f(cx, cy), conf, class_id});
+        Rect box = Rect(Point(x1, y1), Point(x2, y2));
+        Point2f center = Point2f(box.x + box.width / 2, box.y + box.height / 2);
+        pre_nms.push_back({box, center, conf, class_id});
     }
 
-    std::vector<cv::Rect> boxes;
-    std::vector<float> scores;
+    vector<Rect> boxes;
+    vector<float> scores;
     for (const auto& d : pre_nms) {
         boxes.push_back(d.box);
         scores.push_back(d.confidence);
     }
 
-    std::vector<int> keep;
-    cv::dnn::NMSBoxes(boxes, scores, confThreshold, iouThreshold, keep);
+    vector<int> keep;
+    dnn::NMSBoxes(boxes, scores, confThreshold, iouThreshold, keep);
 
-    std::vector<Detection> final;
+    vector<Detection> final;
     for (int idx : keep) final.push_back(pre_nms[idx]);
     return final;
 }

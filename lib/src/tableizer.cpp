@@ -112,7 +112,7 @@ int runTableizerForImage(Mat image, BallDetector& ballDetector) {
         // centres in *original* pixel space
         vector<cv::Point2f> ballCentresOrig;
         for (const auto& d : detections) {
-            cv::Point2f p(d.box.x + d.box.width / 2, d.box.y + d.box.height / 2);
+            cv::Point2f p = d.center;  //(d.box.x + d.box.width / 2, d.box.y + d.box.height / 2);
             ballCentresOrig.emplace_back(p);
             cout << "Ball at @ " << p << "\n";
         }
@@ -232,7 +232,8 @@ const char* detect_objects(void* detector_ptr, const unsigned char* image_bytes,
             json += "{";
             json += "\"class_id\": " + std::to_string(d.classId) + ", ";
             json += "\"confidence\": " + std::to_string(d.confidence) + ", ";
-            json += "\"center\": " + std::to_string(d.center) + ", ";
+            json += "\"center_x\": " + std::to_string(d.center.x) + ", ";
+            json += "\"center_y\": " + std::to_string(d.center.y) + ", ";
             json += "\"box\": {\"x\": " + std::to_string(d.box.x) +
                     ", \"y\": " + std::to_string(d.box.y) +
                     ", \"width\": " + std::to_string(d.box.width) +
