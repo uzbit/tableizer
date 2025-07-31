@@ -185,18 +185,43 @@ int runTableizerForImage(Mat image, BallDetector& ballDetector) {
 }
 
 #if BUILD_SHARED_LIB
-#include <android/log.h>
+// #include <android/log.h>
 
+#include "ball_detector.hpp"
 #include "tableizer.hpp"
-#define LOG_TAG "tableizer"  // anything that helps you filter Logcat
 
-#define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
-#define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
+// #define LOG_TAG "tableizer"  // anything that helps you filter Logcat
+// #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
+// #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
 
 // The FFI functions will interact with the BallDetector class.
 // We return a void* to hide the implementation details from the C interface.
 
+string format_detections_json(const vector<Detection>& detections) {
+    // Format results as a JSON string
+    std::string json = "{\"detections\": [";
+    for (size_t i = 0; i < detections.size(); ++i) {
+        const auto& d = detections[i];
+        json += "{";
+        json += "\"class_id\": " + std::to_string(d.classId) + ", ";
+        json += "\"confidence\": " + std::to_string(d.confidence) + ", ";
+        json += "\"center_x\": " + std::to_string(d.center.x) + ", ";
+        json += "\"center_y\": " + std::to_string(d.center.y) + ", ";
+        json += "\"box\": {\"x\": " + std::to_string(d.box.x) +
+                ", \"y\": " + std::to_string(d.box.y) +
+                ", \"width\": " + std::to_string(d.box.width) +
+                ", \"height\": " + std::to_string(d.box.height) + "}";
+        json += "}";
+        if (i < detections.size() - 1) {
+            json += ", ";
+        }
+    }
+    json += "]}";
+    return json;
+}
+
 extern "C" {
+
 void* initialize_detector(const char* model_path) {
     try {
         BallDetector* detector = new BallDetector(model_path);
@@ -207,8 +232,8 @@ void* initialize_detector(const char* model_path) {
     }
 }
 
-const char* detect_objects(void* detector_ptr, const unsigned char* image_bytes, int width,
-                           int height, int channels) {
+const char* detect_objects_rgba(void* detector_ptr, const unsigned char* image_bytes, int width,
+                                int height, int channels) {
     static std::string result_str;
     if (!detector_ptr) {
         result_str = "{\"error\": \"Invalid detector instance\"}";
@@ -231,33 +256,13 @@ const char* detect_objects(void* detector_ptr, const unsigned char* image_bytes,
 
         const auto detections = detector->detect(image_bgr, CONF_THRESH, IOU_THRESH);
 
-        // Format results as a JSON string
-        std::string json = "{\"detections\": [";
-        for (size_t i = 0; i < detections.size(); ++i) {
-            const auto& d = detections[i];
-            json += "{";
-            json += "\"class_id\": " + std::to_string(d.classId) + ", ";
-            json += "\"confidence\": " + std::to_string(d.confidence) + ", ";
-            json += "\"center_x\": " + std::to_string(d.center.x) + ", ";
-            json += "\"center_y\": " + std::to_string(d.center.y) + ", ";
-            json += "\"box\": {\"x\": " + std::to_string(d.box.x) +
-                    ", \"y\": " + std::to_string(d.box.y) +
-                    ", \"width\": " + std::to_string(d.box.width) +
-                    ", \"height\": " + std::to_string(d.box.height) + "}";
-            json += "}";
-            if (i < detections.size() - 1) {
-                json += ", ";
-            }
-        }
-        json += "]}";
-
-        result_str = json;
-        LOGI(result_str);
+        result_str = format_detections_json(detections);
+        // LOGI(result_str);
         return result_str.c_str();
 
     } catch (const std::exception& e) {
         result_str = std::string("{\"error\": \"") + e.what() + "\"}";
-        LOGE(result_str);
+        // LOGE(result_str);
         return result_str.c_str();
     }
 }
@@ -266,6 +271,55 @@ void release_detector(void* detector_ptr) {
     if (detector_ptr) {
         BallDetector* detector = static_cast<BallDetector*>(detector_ptr);
         delete detector;
+    }
+}
+
+const char* detect_objects_yuv(void* detector_ptr, uint8_t* y_plane,
+                              uint8_t* u_plane,
+                              uint8_t* v_plane,
+                              int width, int height, int y_stride,
+                              int u_stride, int v_stride) {
+    static std::string result_str;
+    if (!detector_ptr) {
+        result_str = "{\"error\": \"Invalid detector instance\"}";
+        return result_str.c_str();
+    }
+
+    BallDetector* detector = static_cast<BallDetector*>(detector_ptr);
+
+    try {
+        // Create a single continuous cv::Mat for the I420 data.
+        cv::Mat yuv(height + height / 2, width, CV_8UC1);
+        uint8_t* yuv_data = yuv.data;
+
+        // Copy Y plane, handling stride.
+        for (int i = 0; i < height; ++i) {
+            memcpy(yuv_data + i * width, y_plane + i * y_stride, width);
+        }
+
+        // Copy U plane, handling stride.
+        uint8_t* u_dst = yuv_data + height * width;
+        for (int i = 0; i < height / 2; ++i) {
+            memcpy(u_dst + i * (width / 2), u_plane + i * u_stride, width / 2);
+        }
+
+        // Copy V plane, handling stride.
+        uint8_t* v_dst = u_dst + (height / 2) * (width / 2);
+        for (int i = 0; i < height / 2; ++i) {
+            memcpy(v_dst + i * (width / 2), v_plane + i * v_stride, width / 2);
+        }
+
+        // Convert the packed YUV image to BGR.
+        cv::Mat bgr;
+        cv::cvtColor(yuv, bgr, cv::COLOR_YUV2BGR_I420);
+        const auto detections = detector->detect(bgr, CONF_THRESH, IOU_THRESH);
+
+        result_str = format_detections_json(detections);
+        return result_str.c_str();
+
+    } catch (const std::exception& e) {
+        result_str = std::string("{\"error\": \"") + e.what() + "\"}";
+        return result_str.c_str();
     }
 }
 

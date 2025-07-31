@@ -18,7 +18,7 @@ void main() {
     final detectionService = DetectionService();
     await detectionService.initialize();
 
-    final detections = await detectionService.detectFromImage(testImage!);
+    final detections = await detectionService.detectFromRGBImage(testImage!);
     final int count = detections.length;
     print('Number of detections: $count');
     expect(count, 16);

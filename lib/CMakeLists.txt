@@ -20,6 +20,14 @@ set(APP_SOURCES
 )
 find_library(log-lib log)
 
+add_compile_options(-O0 -g -Wall -Wextra)
+
+# target_compile_options(tableizer_lib PRIVATE
+#     $<$<CONFIG:Debug>:-O0 -g>
+#     $<$<CONFIG:Release>:-O3 -DNDEBUG>
+#     -Wall -Wextra -Werror
+# )
+
 # --- Platform-Specific Configuration ---
 if(BUILD_SHARED_LIB)
     message(STATUS "Building shared library")

@@ -15,32 +15,62 @@ class BoxPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, ui.Size size) {
-    if (imageSize.isEmpty) return;
+    if (imageSize.isEmpty || size.isEmpty) return;
 
-    final double scaleX = screenSize.width / imageSize.width;
-    final double scaleY = screenSize.height / imageSize.height;
-
-    final Paint paint = Paint()
+    // --- DEBUG STEP 1: Draw a border around the entire canvas ---
+    final canvasBorderPaint = Paint()
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 2.0;
+      ..strokeWidth = 3.0
+      ..color = Colors.redAccent;
+    canvas.drawRect(Offset.zero & size, canvasBorderPaint);
 
+    // --- Calculate Transformation ---
+    final rotatedImageSize = ui.Size(imageSize.height, imageSize.width);
+    final fittedSizes = applyBoxFit(BoxFit.cover, rotatedImageSize, size);
+    final sourceRect = Alignment.center
+        .inscribe(fittedSizes.source, Offset.zero & rotatedImageSize);
+    final destRect =
+        Alignment.center.inscribe(fittedSizes.destination, Offset.zero & size);
+
+    // --- DEBUG STEP 2: Draw the calculated area of the camera preview ---
+    final previewAreaPaint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 3.0
+      ..color = Colors.blueAccent;
+    canvas.drawRect(destRect, previewAreaPaint);
+
+    final double scaleX = destRect.width / sourceRect.width;
+    final double scaleY = destRect.height / sourceRect.height;
+    final Offset offset = destRect.topLeft;
+
+    // --- DEBUG STEP 3: Draw the final transformed bounding boxes ---
     for (final detection in detections) {
-      final rect = Rect.fromLTWH(
-        detection.box.x * scaleX,
-        detection.box.y * scaleY,
-        detection.box.width * scaleX,
-        detection.box.height * scaleY,
+      final rotatedRect = Rect.fromLTWH(
+        detection.box.y.toDouble(),
+        imageSize.width - detection.box.x - detection.box.width,
+        detection.box.height.toDouble(),
+        detection.box.width.toDouble(),
       );
 
-      paint.color = _getColorForClass(detection.classId);
-      canvas.drawRect(rect, paint);
+      final finalRect = Rect.fromLTWH(
+        rotatedRect.left * scaleX + offset.dx,
+        rotatedRect.top * scaleY + offset.dy,
+        rotatedRect.width * scaleX,
+        rotatedRect.height * scaleY,
+      );
+
+      final boxPaint = Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2.0
+        ..color = _getColorForClass(detection.classId);
+      canvas.drawRect(finalRect, boxPaint);
 
       final TextPainter textPainter = TextPainter(
         text: TextSpan(
           text:
               '${detection.classId} (${(detection.confidence * 100).toStringAsFixed(2)}%)',
           style: TextStyle(
-            color: paint.color,
+            color: boxPaint.color,
             fontSize: 12.0,
             backgroundColor: Colors.black.withOpacity(0.5),
           ),
@@ -48,7 +78,7 @@ class BoxPainter extends CustomPainter {
         textDirection: TextDirection.ltr,
       );
       textPainter.layout(minWidth: 0, maxWidth: size.width);
-      textPainter.paint(canvas, rect.topLeft.translate(0, -14));
+      textPainter.paint(canvas, finalRect.topLeft.translate(0, -14));
     }
   }
 

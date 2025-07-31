@@ -49,43 +49,21 @@ class CameraScreenState extends State<CameraScreen> {
     print("Image size: ${_imageSize}");
     _updateDetections(image).then((_) {
       _isProcessingFrame = false;
-      // _drawBoxes(screenSize).whenComplete(() => _isProcessingFrame = false);
     });
   }
 
   Future<void> _updateDetections(CameraImage image) async {
-    // Convert the YUV CameraImage ➜ RGBA `img.Image`
-    final img.Image rgbaFrame = convertCameraImage(image);
+    // Run native inference on the YUV planes
+    _detections = await _detectionService.detectFromRGBImage(convertCameraImage(image));
 
-    // Optional debug
-    print('Frame: ${rgbaFrame.width}×${rgbaFrame.height} '
-        '(${rgbaFrame.lengthInBytes} B)');
+    //_detections = await _detectionService.detectFromYUV(image);
 
-    // Run native inference on the decoded frame
-    _detections = await _detectionService.detectFromImage(rgbaFrame);
+    if (mounted) {
+      setState(() {});
+    }
 
     print('Found ${_detections.length} balls!');
   }
-
-  // Future<void> _drawBoxes(Size screenSize) async {
-  //   if (_latestImage == null) return;
-  //   final image = await convertCameraImageToUiImage(_latestImage!);
-  //   final recorder = ui.PictureRecorder();
-  //   final canvas = Canvas(recorder);
-  //   final painter = BoxPainter(
-  //     detections: _detections,
-  //     imageSize: Size(image.width.toDouble(), image.height.toDouble()),
-  //     screenSize: screenSize,
-  //   );
-  //   painter.paint(canvas, Size(image.width.toDouble(), image.height.toDouble()));
-  //   final picture = recorder.endRecording();
-  //   final newImageWithBoxes = await picture.toImage(image.width, image.height);
-  //   if (mounted) {
-  //     setState(() {
-  //       _imageWithBoxes = newImageWithBoxes;
-  //     });
-  //   }
-  // }
 
   @override
   void dispose() {

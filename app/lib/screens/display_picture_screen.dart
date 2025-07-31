@@ -43,11 +43,13 @@ class _DisplayPictureScreenState extends State<DisplayPictureScreen> {
   Future<void> _processImage() async {
     if (_imageBytes == null) return;
 
-    // final detections =
-    //     await widget.detectionService.detectFromBytes(_imageBytes!);
-    // setState(() {
-    //   _detections = detections;
-    // });
+    final img.Image? image = img.decodeImage(_imageBytes!);
+    if (image == null) return;
+
+    final detections = await widget.detectionService.detectFromRGBImage(image);
+    setState(() {
+      _detections = detections;
+    });
     await _drawBoxes();
   }
 

@@ -6,6 +6,7 @@ import 'package:image/image.dart' as img;
 
 img.Image convertCameraImage(CameraImage cameraImage) {
   if (cameraImage.format.group == ImageFormatGroup.yuv420) {
+    print("Processing as yuv420!");
     final int width = cameraImage.width;
     final int height = cameraImage.height;
     final int uvRowStride = cameraImage.planes[1].bytesPerRow;
@@ -32,6 +33,7 @@ img.Image convertCameraImage(CameraImage cameraImage) {
     }
     return image;
   } else if (cameraImage.format.group == ImageFormatGroup.bgra8888) {
+    print("Processing as bgra8888!");
     return img.Image.fromBytes(
       width: cameraImage.width,
       height: cameraImage.height,

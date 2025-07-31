@@ -16,8 +16,29 @@ import '../utils/image_converter.dart';
 typedef InitializeDetectorC = Pointer<Void> Function(Pointer<Utf8> modelPath);
 typedef InitializeDetectorDart = Pointer<Void> Function(Pointer<Utf8> modelPath);
 
-typedef DetectObjectsC = Pointer<Utf8> Function(Pointer<Void> detector, Pointer<Uint8> imageBytes, Int32 width, Int32 height, Int32 channels);
-typedef DetectObjectsDart = Pointer<Utf8> Function(Pointer<Void> detector, Pointer<Uint8> imageBytes, int width, int height, int channels);
+typedef DetectObjectsRGBAC = Pointer<Utf8> Function(Pointer<Void> detector, Pointer<Uint8> imageBytes, Int32 width, Int32 height, Int32 channels);
+typedef DetectObjectsRGBADart = Pointer<Utf8> Function(Pointer<Void> detector, Pointer<Uint8> imageBytes, int width, int height, int channels);
+
+typedef DetectObjectsYUVC = Pointer<Utf8> Function(
+    Pointer<Void> detector,
+    Pointer<Uint8> yPlane,
+    Pointer<Uint8> uPlane,
+    Pointer<Uint8> vPlane,
+    Int32 width,
+    Int32 height,
+    Int32 yStride,
+    Int32 uStride,
+    Int32 vStride);
+typedef DetectObjectsYUVDart = Pointer<Utf8> Function(
+    Pointer<Void> detector,
+    Pointer<Uint8> yPlane,
+    Pointer<Uint8> uPlane,
+    Pointer<Uint8> vPlane,
+    int width,
+    int height,
+    int yStride,
+    int uStride,
+    int vStride);
 
 typedef ReleaseDetectorC = Void Function(Pointer<Void> detector);
 typedef ReleaseDetectorDart = void Function(Pointer<Void> detector);
@@ -25,7 +46,8 @@ typedef ReleaseDetectorDart = void Function(Pointer<Void> detector);
 class DetectionService {
   Pointer<Void> _detector = nullptr;
   late final InitializeDetectorDart _initializeDetector;
-  late final DetectObjectsDart _detectObjects;
+  late final DetectObjectsRGBADart _detectObjectsRGBA;
+  late final DetectObjectsYUVDart _detectObjectsYUV;
   late final ReleaseDetectorDart _releaseDetector;
   // late final void Function(Pointer<Utf8>) _freeCString;
 
@@ -57,7 +79,7 @@ class DetectionService {
   ///
   /// * `src` can be RGB (3 channels) or RGBA (4 channels).
   /// * Returns an empty list on failure or when no objects are detected.
-  Future<List<Detection>> detectFromImage(img.Image src) async {
+  Future<List<Detection>> detectFromRGBImage(img.Image src) async {
     // Skip if detector busy or not initialised.
     if (_isDetecting || _detector == nullptr) return const [];
 
@@ -77,7 +99,7 @@ class DetectionService {
         ..asTypedList(bytes.length).setAll(0, bytes);
 
       // ── Native inference call ─────────────────────────────────────────────
-      jsonPtr = _detectObjects(
+      jsonPtr = _detectObjectsRGBA(
           _detector, pixelPtr, rgba.width, rgba.height, 4);
 
       final jsonStr = jsonPtr.toDartString();
@@ -96,6 +118,50 @@ class DetectionService {
     }
   }
 
+  Future<List<Detection>> detectFromYUV(CameraImage img) async {
+    if (_isDetecting || _detector == nullptr) return const [];
+    _isDetecting = true;
+
+    Pointer<Uint8>? yPtr;
+    Pointer<Uint8>? uPtr;
+    Pointer<Uint8>? vPtr;
+
+    try {
+      final y = img.planes[0];
+      final u = img.planes[1];
+      final v = img.planes[2];
+
+      yPtr = calloc<Uint8>(y.bytes.length)
+        ..asTypedList(y.bytes.length).setAll(0, y.bytes);
+      uPtr = calloc<Uint8>(u.bytes.length)
+        ..asTypedList(u.bytes.length).setAll(0, u.bytes);
+      vPtr = calloc<Uint8>(v.bytes.length)
+        ..asTypedList(v.bytes.length).setAll(0, v.bytes);
+
+      final jsonPtr = _detectObjectsYUV(
+        _detector,
+        yPtr,
+        uPtr,
+        vPtr,
+        img.width,
+        img.height,
+        y.bytesPerRow,
+        u.bytesPerRow,
+        v.bytesPerRow,
+      );
+
+      final json = jsonPtr.toDartString();
+      print('JSON YUV Detection: $json');
+
+      return json.isEmpty ? const [] : Detections.fromJson(json).detections;
+    } finally {
+      if (yPtr != null) calloc.free(yPtr);
+      if (uPtr != null) calloc.free(uPtr);
+      if (vPtr != null) calloc.free(vPtr);
+      _isDetecting = false;
+    }
+  }
+
   // ────────── PRIVATE HELPERS ──────────
   Future<void> _loadLibrary() async {
     final dylib = Platform.isAndroid
@@ -105,8 +171,11 @@ class DetectionService {
     _initializeDetector = dylib
         .lookup<NativeFunction<InitializeDetectorC>>('initialize_detector')
         .asFunction();
-    _detectObjects = dylib
-        .lookup<NativeFunction<DetectObjectsC>>('detect_objects')
+    _detectObjectsRGBA = dylib
+        .lookup<NativeFunction<DetectObjectsRGBAC>>('detect_objects_rgba')
+        .asFunction();
+    _detectObjectsYUV = dylib
+        .lookup<NativeFunction<DetectObjectsYUVC>>('detect_objects_yuv')
         .asFunction();
     _releaseDetector = dylib
         .lookup<NativeFunction<ReleaseDetectorC>>('release_detector')
