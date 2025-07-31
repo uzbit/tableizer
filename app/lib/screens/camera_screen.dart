@@ -7,6 +7,7 @@ import '../services/detection_service.dart';
 import '../utils/image_converter.dart';
 import '../widgets/box_painter.dart';
 import '../detection_box.dart';
+import '../widgets/util_widgets.dart';
 import 'display_picture_screen.dart';
 
 class CameraScreen extends StatefulWidget {
@@ -54,7 +55,15 @@ class CameraScreenState extends State<CameraScreen> {
 
   Future<void> _updateDetections(CameraImage image) async {
     // Run native inference on the YUV planes
-    _detections = await _detectionService.detectFromRGBImage(convertCameraImage(image));
+    img.Image rgba = convertCameraImage(image);
+    // ── Optional: rotate to match device orientation ────────────────────
+    final int deg = _controller.description.sensorOrientation; // 90, 180, 270
+    if (deg != 0) {
+      rgba = img.copyRotate(rgba, angle: deg);
+    }
+    //showFrameDebug(context, rgba);
+
+    _detections = await _detectionService.detectFromRGBImage(rgba);
 
     //_detections = await _detectionService.detectFromYUV(image);
 

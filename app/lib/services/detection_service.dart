@@ -75,10 +75,6 @@ class DetectionService {
     }
   }
 
-  /// Runs native detection on an *already decoded* `package:image` image.
-  ///
-  /// * `src` can be RGB (3 channels) or RGBA (4 channels).
-  /// * Returns an empty list on failure or when no objects are detected.
   Future<List<Detection>> detectFromRGBImage(img.Image src) async {
     // Skip if detector busy or not initialised.
     if (_isDetecting || _detector == nullptr) return const [];
