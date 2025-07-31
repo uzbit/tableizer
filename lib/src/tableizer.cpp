@@ -185,7 +185,13 @@ int runTableizerForImage(Mat image, BallDetector& ballDetector) {
 }
 
 #if BUILD_SHARED_LIB
+#include <android/log.h>
+
 #include "tableizer.hpp"
+#define LOG_TAG "tableizer"  // anything that helps you filter Logcat
+
+#define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
+#define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
 
 // The FFI functions will interact with the BallDetector class.
 // We return a void* to hide the implementation details from the C interface.
@@ -246,10 +252,12 @@ const char* detect_objects(void* detector_ptr, const unsigned char* image_bytes,
         json += "]}";
 
         result_str = json;
+        LOGI(result_str);
         return result_str.c_str();
 
     } catch (const std::exception& e) {
         result_str = std::string("{\"error\": \"") + e.what() + "\"}";
+        LOGE(result_str);
         return result_str.c_str();
     }
 }
@@ -260,5 +268,6 @@ void release_detector(void* detector_ptr) {
         delete detector;
     }
 }
-}
+
+}  // extern C
 #endif

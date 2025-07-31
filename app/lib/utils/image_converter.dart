@@ -1,4 +1,7 @@
+import 'dart:ui' as ui;
+
 import 'package:camera/camera.dart';
+import 'package:flutter/foundation.dart';
 import 'package:image/image.dart' as img;
 
 img.Image convertCameraImage(CameraImage cameraImage) {
@@ -38,4 +41,12 @@ img.Image convertCameraImage(CameraImage cameraImage) {
   } else {
     throw Exception('Unsupported image format: ${cameraImage.format.group}');
   }
+}
+
+Future<ui.Image> convertCameraImageToUiImage(CameraImage cameraImage) async {
+  final img.Image image = convertCameraImage(cameraImage);
+  final Uint8List list = Uint8List.fromList(img.encodePng(image));
+  final ui.Codec codec = await ui.instantiateImageCodec(list);
+  final ui.FrameInfo frameInfo = await codec.getNextFrame();
+  return frameInfo.image;
 }

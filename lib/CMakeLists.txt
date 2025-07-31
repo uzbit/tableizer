@@ -18,6 +18,7 @@ set(APP_SOURCES
     ${LIB_SOURCES}
     src/main.cpp
 )
+find_library(log-lib log)
 
 # --- Platform-Specific Configuration ---
 if(BUILD_SHARED_LIB)
@@ -64,6 +65,7 @@ if(BUILD_SHARED_LIB)
     target_link_libraries(tableizer_lib
         ${OpenCV_LIBS}
         ${ONNXRUNTIME_LIBRARY_PATH}
+        ${log-lib}
     )
 
 else()

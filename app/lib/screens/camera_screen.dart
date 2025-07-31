@@ -2,7 +2,9 @@ import 'dart:ui' as ui;
 
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart' hide BoxPainter;
+import 'package:image/image.dart' as img;
 import '../services/detection_service.dart';
+import '../utils/image_converter.dart';
 import '../widgets/box_painter.dart';
 import '../detection_box.dart';
 import 'display_picture_screen.dart';
@@ -20,6 +22,8 @@ class CameraScreenState extends State<CameraScreen> {
   Future<void>? _initializeControllerFuture;
   final DetectionService _detectionService = DetectionService();
   List<Detection> _detections = [];
+  bool _isProcessingFrame = false;
+  ui.Size _imageSize = ui.Size(0, 0);
 
   @override
   void initState() {
@@ -28,7 +32,7 @@ class CameraScreenState extends State<CameraScreen> {
   }
 
   Future<void> _initializeEverything() async {
-    _controller = CameraController(widget.camera, ResolutionPreset.high);
+    _controller = CameraController(widget.camera, ResolutionPreset.high, enableAudio: false);
     await _detectionService.initialize();
     await _controller.initialize();
     if (mounted) {
@@ -36,14 +40,52 @@ class CameraScreenState extends State<CameraScreen> {
     }
   }
 
-  void _processCameraImage(CameraImage image) async {
-    final detections = await _detectionService.detect(image);
-    if (mounted) {
-      setState(() {
-        _detections = detections;
-      });
+  void _processCameraImage(CameraImage image) {
+    if (_isProcessingFrame) {
+      return;
     }
+    _isProcessingFrame = true;
+    _imageSize = ui.Size(image.width.toDouble(), image.height.toDouble());
+    print("Image size: ${_imageSize}");
+    _updateDetections(image).then((_) {
+      _isProcessingFrame = false;
+      // _drawBoxes(screenSize).whenComplete(() => _isProcessingFrame = false);
+    });
   }
+
+  Future<void> _updateDetections(CameraImage image) async {
+    // Convert the YUV CameraImage ➜ RGBA `img.Image`
+    final img.Image rgbaFrame = convertCameraImage(image);
+
+    // Optional debug
+    print('Frame: ${rgbaFrame.width}×${rgbaFrame.height} '
+        '(${rgbaFrame.lengthInBytes} B)');
+
+    // Run native inference on the decoded frame
+    _detections = await _detectionService.detectFromImage(rgbaFrame);
+
+    print('Found ${_detections.length} balls!');
+  }
+
+  // Future<void> _drawBoxes(Size screenSize) async {
+  //   if (_latestImage == null) return;
+  //   final image = await convertCameraImageToUiImage(_latestImage!);
+  //   final recorder = ui.PictureRecorder();
+  //   final canvas = Canvas(recorder);
+  //   final painter = BoxPainter(
+  //     detections: _detections,
+  //     imageSize: Size(image.width.toDouble(), image.height.toDouble()),
+  //     screenSize: screenSize,
+  //   );
+  //   painter.paint(canvas, Size(image.width.toDouble(), image.height.toDouble()));
+  //   final picture = recorder.endRecording();
+  //   final newImageWithBoxes = await picture.toImage(image.width, image.height);
+  //   if (mounted) {
+  //     setState(() {
+  //       _imageWithBoxes = newImageWithBoxes;
+  //     });
+  //   }
+  // }
 
   @override
   void dispose() {
@@ -74,8 +116,7 @@ class CameraScreenState extends State<CameraScreen> {
                 CustomPaint(
                   painter: BoxPainter(
                     detections: _detections,
-                    cameraPreviewSize:
-                        _controller.value.previewSize ?? ui.Size(0, 0),
+                    imageSize: _imageSize,
                     screenSize: MediaQuery.of(context).size,
                   ),
                 ),

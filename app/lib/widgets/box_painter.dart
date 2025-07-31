@@ -5,20 +5,20 @@ import '../detection_box.dart';
 
 class BoxPainter extends CustomPainter {
   final List<Detection> detections;
-  final ui.Size cameraPreviewSize;
+  final ui.Size imageSize;
   final ui.Size screenSize;
 
   BoxPainter(
       {required this.detections,
-      required this.cameraPreviewSize,
+      required this.imageSize,
       required this.screenSize});
 
   @override
   void paint(Canvas canvas, ui.Size size) {
-    if (cameraPreviewSize.isEmpty) return;
+    if (imageSize.isEmpty) return;
 
-    final double scaleX = screenSize.width / cameraPreviewSize.height;
-    final double scaleY = screenSize.height / cameraPreviewSize.width;
+    final double scaleX = screenSize.width / imageSize.width;
+    final double scaleY = screenSize.height / imageSize.height;
 
     final Paint paint = Paint()
       ..style = PaintingStyle.stroke
