@@ -19,7 +19,7 @@ using namespace cv;
 
 #define IMSHOW true
 #define CONF_THRESH 0.6
-#define IOU_THRESH 0.7
+#define IOU_THRESH 0.9
 
 int runTableizerForImage(Mat image, BallDetector& ballDetector) {
 #if IMSHOW
@@ -274,11 +274,9 @@ void release_detector(void* detector_ptr) {
     }
 }
 
-const char* detect_objects_yuv(void* detector_ptr, uint8_t* y_plane,
-                              uint8_t* u_plane,
-                              uint8_t* v_plane,
-                              int width, int height, int y_stride,
-                              int u_stride, int v_stride) {
+const char* detect_objects_yuv(void* detector_ptr, uint8_t* y_plane, uint8_t* u_plane,
+                               uint8_t* v_plane, int width, int height, int y_stride, int u_stride,
+                               int v_stride) {
     static std::string result_str;
     if (!detector_ptr) {
         result_str = "{\"error\": \"Invalid detector instance\"}";

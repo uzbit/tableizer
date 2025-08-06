@@ -19,6 +19,9 @@ warnings.filterwarnings("ignore")
 
 # EXPORT TORCHSCRIPT WITH:
 # yolo export model=/Users/uzbit/Documents/projects/tableizer/tableizer/7/weights/best.pt format=onnx device=cpu imgsz=800 simplify=True dynamic=False
+# EXPORT ONNX WITH:
+# yolo export model=/ableizer/expN/weights/best.pt format=onnx dynamic=True simplify=True opset=12
+# cp tableizer/expN/weights/best.onnx ./app/assets/detection_model.onnx
 
 # ──────────────────────────────────────────────────────────
 # 0.  Optional: ensure ultralytics is installed
@@ -253,7 +256,7 @@ def main():
         "classNames": ["black", "cue", "solid", "stripe"],  # id 0→black …
         "split": [0.8, 0.15, 0.05],
         "trainer": {
-            "model":   "yolov9s.pt",        # or yolov8s.pt, yolov9c.pt …
+            "model":   "yolov8n.pt",        # or yolov8s.pt, yolov9c.pt …
             "hyp":     "data/hyps/hyp.custom.yaml",  # optional
             "epochs":  100,
             "imgsz":   800,

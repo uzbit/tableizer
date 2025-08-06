@@ -2,9 +2,7 @@ import 'dart:ui' as ui;
 
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart' hide BoxPainter;
-import 'package:image/image.dart' as img;
 import '../services/detection_service.dart';
-import '../utils/image_converter.dart';
 import '../widgets/box_painter.dart';
 import '../detection_box.dart';
 import '../widgets/util_widgets.dart';
@@ -25,6 +23,8 @@ class CameraScreenState extends State<CameraScreen> {
   List<Detection> _detections = [];
   bool _isProcessingFrame = false;
   ui.Size _imageSize = ui.Size(0, 0);
+  ui.Size _sensorSize = ui.Size(0, 0);
+
 
   @override
   void initState() {
@@ -36,6 +36,9 @@ class CameraScreenState extends State<CameraScreen> {
     _controller = CameraController(widget.camera, ResolutionPreset.high, enableAudio: false);
     await _detectionService.initialize();
     await _controller.initialize();
+    final preview = _controller.value.previewSize!;   // e.g. 1280×720
+    // previewSize is always the sensor’s *native* orientation (landscape)
+    _sensorSize = ui.Size(preview.width, preview.height);
     if (mounted) {
       await _controller.startImageStream(_processCameraImage);
     }
@@ -48,30 +51,21 @@ class CameraScreenState extends State<CameraScreen> {
     _isProcessingFrame = true;
     _imageSize = ui.Size(image.width.toDouble(), image.height.toDouble());
     print("Image size: ${_imageSize}");
+    print("Sensor size: ${_sensorSize}");
+
     _updateDetections(image).then((_) {
       _isProcessingFrame = false;
     });
   }
 
   Future<void> _updateDetections(CameraImage image) async {
-    // Run native inference on the YUV planes
-    img.Image rgba = convertCameraImage(image);
-    // ── Optional: rotate to match device orientation ────────────────────
-    final int deg = _controller.description.sensorOrientation; // 90, 180, 270
-    if (deg != 0) {
-      rgba = img.copyRotate(rgba, angle: deg);
-    }
-    //showFrameDebug(context, rgba);
-
-    _detections = await _detectionService.detectFromRGBImage(rgba);
-
-    //_detections = await _detectionService.detectFromYUV(image);
+    // Run native inference directly on the YUV planes.
+    // This is much faster than converting to RGB.
+    _detections = await _detectionService.detectFromYUV(image);
 
     if (mounted) {
       setState(() {});
     }
-
-    print('Found ${_detections.length} balls!');
   }
 
   @override
@@ -96,15 +90,17 @@ class CameraScreenState extends State<CameraScreen> {
               return Center(
                   child: Text('Initialization Error: ${snapshot.error}'));
             }
+            print('--- CameraScreen Live ---');
+            print('Sensor Size being passed to BoxPainter: $_sensorSize');
+            print('--- End CameraScreen Live ---');
             return Stack(
               fit: StackFit.expand,
               children: [
                 CameraPreview(_controller),
                 CustomPaint(
                   painter: BoxPainter(
-                    detections: _detections,
-                    imageSize: _imageSize,
-                    screenSize: MediaQuery.of(context).size,
+                    sensorSize: _sensorSize,
+                    detections: _detections,   // List<Detection>
                   ),
                 ),
               ],

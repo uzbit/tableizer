@@ -58,10 +58,8 @@ class _DisplayPictureScreenState extends State<DisplayPictureScreen> {
     final recorder = ui.PictureRecorder();
     final canvas = Canvas(recorder);
     final painter = BoxPainter(
-      detections: _detections,
-      imageSize:
-          Size(_image!.width.toDouble(), _image!.height.toDouble()),
-      screenSize: MediaQuery.of(context).size,
+      sensorSize: const ui.Size(1280, 720),
+      detections : _detections,   // List<Detection>
     );
     canvas.drawImage(_image!, Offset.zero, Paint());
     painter.paint(
