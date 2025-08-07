@@ -18,15 +18,6 @@ set(APP_SOURCES
     ${LIB_SOURCES}
     src/main.cpp
 )
-find_library(log-lib log)
-
-add_compile_options(-O0 -g -Wall -Wextra)
-
-# target_compile_options(tableizer_lib PRIVATE
-#     $<$<CONFIG:Debug>:-O0 -g>
-#     $<$<CONFIG:Release>:-O3 -DNDEBUG>
-#     -Wall -Wextra -Werror
-# )
 
 # --- Platform-Specific Configuration ---
 if(BUILD_SHARED_LIB)
@@ -65,6 +56,12 @@ if(BUILD_SHARED_LIB)
     endif()
 
     add_library(tableizer_lib SHARED ${LIB_SOURCES})
+    target_compile_options(tableizer_lib PRIVATE
+        $<$<CONFIG:Debug>:-O0 -g>
+        $<$<CONFIG:Release>:-O3 -DNDEBUG>
+        -Wall -Wextra 
+    )
+
     target_include_directories(tableizer_lib PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}/include
         ${OpenCV_INCLUDE_DIRS}
@@ -73,7 +70,6 @@ if(BUILD_SHARED_LIB)
     target_link_libraries(tableizer_lib
         ${OpenCV_LIBS}
         ${ONNXRUNTIME_LIBRARY_PATH}
-        ${log-lib}
     )
 
 else()

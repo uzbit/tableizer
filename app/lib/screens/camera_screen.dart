@@ -24,6 +24,9 @@ class CameraScreenState extends State<CameraScreen> {
   bool _isProcessingFrame = false;
   ui.Size _imageSize = ui.Size(0, 0);
   ui.Size _sensorSize = ui.Size(0, 0);
+  int _frameCounter = 0;
+  int _lastFrameTime = 0;
+  double _fps = 0.0;
 
 
   @override
@@ -50,8 +53,18 @@ class CameraScreenState extends State<CameraScreen> {
     }
     _isProcessingFrame = true;
     _imageSize = ui.Size(image.width.toDouble(), image.height.toDouble());
-    print("Image size: ${_imageSize}");
-    print("Sensor size: ${_sensorSize}");
+
+    final currentTime = DateTime.now().millisecondsSinceEpoch;
+    if (_lastFrameTime == 0) {
+      _lastFrameTime = currentTime;
+    }
+    final int aSecondAgo = currentTime - 1000;
+    _frameCounter++;
+    if (_lastFrameTime < aSecondAgo) {
+      _fps = _frameCounter / ((currentTime - _lastFrameTime) / 1000.0);
+      _frameCounter = 0;
+      _lastFrameTime = currentTime;
+    }
 
     _updateDetections(image).then((_) {
       _isProcessingFrame = false;
@@ -90,9 +103,6 @@ class CameraScreenState extends State<CameraScreen> {
               return Center(
                   child: Text('Initialization Error: ${snapshot.error}'));
             }
-            print('--- CameraScreen Live ---');
-            print('Sensor Size being passed to BoxPainter: $_sensorSize');
-            print('--- End CameraScreen Live ---');
             return Stack(
               fit: StackFit.expand,
               children: [
@@ -101,6 +111,16 @@ class CameraScreenState extends State<CameraScreen> {
                   painter: BoxPainter(
                     sensorSize: _sensorSize,
                     detections: _detections,   // List<Detection>
+                  ),
+                ),
+                Align(
+                  alignment: Alignment.topLeft,
+                  child: Container(
+                    color: Colors.black.withOpacity(0.5),
+                    child: Text(
+                      'FPS: ${_fps.toStringAsFixed(1)}',
+                      style: TextStyle(color: Colors.white, fontSize: 20),
+                    ),
                   ),
                 ),
               ],

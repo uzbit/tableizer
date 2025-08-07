@@ -1,6 +1,7 @@
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
+import 'package:vector_math/vector_math_64.dart' hide Colors;
 import '../detection_box.dart';
 
 /// Paints YOLO / detector boxes on top of a portrait camera preview.
@@ -20,22 +21,24 @@ class BoxPainter extends CustomPainter {
     // 1. rotate sensor 90° CW → portrait buffer size
     final ui.Size bufSize = ui.Size(sensorSize.height, sensorSize.width);
 
-    // 2. same maths Flutter uses for CameraPreview (BoxFit.cover)
+    // 2. get the transform from bufSize to screen
     final fitted = applyBoxFit(fit, bufSize, screen);
     final src = Alignment.center.inscribe(fitted.source, Offset.zero & bufSize);
     final dst = Alignment.center.inscribe(fitted.destination, Offset.zero & screen);
 
-    final double scale = dst.width / src.width; // X and Y scale are equal for cover
-    final Offset shift = dst.topLeft;
+    // 3. same as `src` but with zero origin
+    final srcCropped = Rect.fromLTWH(0, 0, src.width, src.height);
 
-    // shift into cropped src space, then scale & shift to screen
-    final Rect cropped = r.shift(-src.topLeft);
-    return Rect.fromLTWH(
-      cropped.left   * scale + shift.dx,
-      cropped.top    * scale + shift.dy,
-      cropped.width  * scale,
-      cropped.height * scale,
-    );
+    // 4. transform r from sensor-full → sensor-cropped → screen
+    final matrix = Matrix4.identity()
+      ..translate(dst.left, dst.top)
+      ..scale(dst.width / srcCropped.width, dst.height / srcCropped.height)
+      ..translate(-src.left, -src.top);
+
+    final tl = matrix.transform3(Vector3(r.left, r.top, 0));
+    final br = matrix.transform3(Vector3(r.right, r.bottom, 0));
+
+    return Rect.fromLTRB(tl.x, tl.y, br.x, br.y);
   }
 
   // ───────────────────  painter  ───────────────────
@@ -81,7 +84,7 @@ class BoxPainter extends CustomPainter {
 
   // simple deterministic colour wheel
   Color _colorForClass(int id) {
-    const colors = [
+    final colors = [
       Colors.black, Colors.white, Colors.yellow,
       Colors.red, //Colors.purple, Colors.cyan,
     ];
