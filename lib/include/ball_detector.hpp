@@ -16,8 +16,7 @@ class BallDetector {
    public:
     BallDetector(const std::string& modelPath);
     ~BallDetector();  // Required for std::unique_ptr with forward-declared type
-    std::vector<Detection> detect(const cv::Mat& image, float confThreshold = 0.25,
-                                  float iouThreshold = 0.45);
+    std::vector<Detection> detect(const cv::Mat& image, float confThreshold, float iouThreshold);
 
    private:
     struct Impl;  // Forward declaration

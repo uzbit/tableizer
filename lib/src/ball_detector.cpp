@@ -50,7 +50,7 @@ BallDetector::BallDetector(const string& modelPath) : pimpl(make_unique<Impl>(mo
 BallDetector::~BallDetector() = default;
 
 vector<Detection> BallDetector::detect(const Mat& image, float confThreshold, float iouThreshold) {
-    constexpr int kTarget = 800;
+    constexpr int kTarget = 1280;
     constexpr int num_classes = 4;
 
     int img_w = image.cols, img_h = image.rows;

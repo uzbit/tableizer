@@ -19,7 +19,7 @@ int main(int argc, char* argv[]) {
     std::string directory = argv[1];
 
     const string modelPath =
-        "/Users/uzbit/Documents/projects/tableizer/tableizer/exp8/weights/best.onnx";
+        "/Users/uzbit/Documents/projects/tableizer/app/assets/detection_model.onnx";
     BallDetector ballDetector(modelPath);
 
     for (const auto& entry : fs::directory_iterator(directory)) {

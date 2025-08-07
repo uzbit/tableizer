@@ -19,7 +19,7 @@ using namespace cv;
 
 #define IMSHOW true
 #define CONF_THRESH 0.6
-#define IOU_THRESH 0.9
+#define IOU_THRESH 0.5
 
 int runTableizerForImage(Mat image, BallDetector& ballDetector) {
 #if IMSHOW
@@ -132,7 +132,8 @@ int runTableizerForImage(Mat image, BallDetector& ballDetector) {
 
         for (size_t i = 0; i < ballCentresCanonical.size(); ++i) {
             const auto& p = ballCentresCanonical[i];
-            cout << "  • class " << detections[i].classId << " @ (" << p.x << ", " << p.y << ")\n";
+            cout << "  • class " << detections[i].classId << " conf " << detections[i].confidence
+                 << " @ (" << p.x << ", " << p.y << ")\n";
 
 #if IMSHOW
             cv::Scalar ballColor;

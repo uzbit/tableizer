@@ -20,7 +20,7 @@ warnings.filterwarnings("ignore")
 # EXPORT TORCHSCRIPT WITH:
 # yolo export model=/Users/uzbit/Documents/projects/tableizer/tableizer/7/weights/best.pt format=onnx device=cpu imgsz=800 simplify=True dynamic=False
 # EXPORT ONNX WITH:
-# yolo export model=/ableizer/expN/weights/best.pt format=onnx dynamic=True simplify=True opset=12
+# yolo export model=/ableizer/expN/weights/best.pt format=onnx dynamic=True simplify=True opset=12 imgsz=1280
 # cp tableizer/expN/weights/best.onnx ./app/assets/detection_model.onnx
 
 # ──────────────────────────────────────────────────────────
@@ -254,12 +254,12 @@ def main():
         # original-id → new-id
         "oldToNewMap": {4:3, 3:2, 1:1, 0:0},     # adjust as needed
         "classNames": ["black", "cue", "solid", "stripe"],  # id 0→black …
-        "split": [0.8, 0.15, 0.05],
+        "split": [0.9, 0.05, 0.05],
         "trainer": {
             "model":   "yolov8n.pt",        # or yolov8s.pt, yolov9c.pt …
             "hyp":     "data/hyps/hyp.custom.yaml",  # optional
-            "epochs":  100,
-            "imgsz":   800,
+            "epochs":  30,
+            "imgsz":   1280,
             "batch":   20,
             "device":  "mps",
             "workers": 16,
