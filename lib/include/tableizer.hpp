@@ -42,6 +42,13 @@ __attribute__((visibility("default"))) __attribute__((used)) const char* detect_
     void* detector_ptr, uint8_t* y_plane, uint8_t* u_plane, uint8_t* v_plane, int width, int height,
     int y_stride, int u_stride, int v_stride);
 
+__attribute__((visibility("default"))) __attribute__((used)) const char* detect_table_yuv(
+    uint8_t* y_plane, uint8_t* u_plane, uint8_t* v_plane, int width, int height,
+    int y_stride, int u_stride, int v_stride);
+
+__attribute__((visibility("default"))) __attribute__((used)) const char* detect_table_rgba(
+    const unsigned char* image_bytes, int width, int height, int channels);
+
 __attribute__((visibility("default"))) __attribute__((used)) void release_detector(
     void* detector_ptr);
 

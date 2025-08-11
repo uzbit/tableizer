@@ -1,27 +1,48 @@
 import 'dart:io';
+import 'package:app/services/ball_detection_service.dart';
+import 'package:app/services/table_detection_service.dart';
 import 'package:image/image.dart' as img;
 
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
-import 'package:app/services/detection_service.dart';
 
 void main() {
-
-  testWidgets('Detect objects in a local image on-device', (WidgetTester tester) async {
-    final imagePath = await _getTestAssetPath('assets/images/P_20250718_203819.jpg');
-    final imageBytes  = await File(imagePath).readAsBytes();
+  testWidgets('Detect balls in a local image on-device',
+      (WidgetTester tester) async {
+    final imagePath =
+        await _getTestAssetPath('assets/images/P_20250718_203819.jpg');
+    final imageBytes = await File(imagePath).readAsBytes();
     final img.Image? testImage = img.decodeImage(imageBytes);
     assert(testImage != null, 'Failed to decode test asset');
 
-    final detectionService = DetectionService();
+    final detectionService = BallDetectionService();
     await detectionService.initialize();
 
     final detections = await detectionService.detectFromRGBImage(testImage!);
     final int count = detections.length;
     print('Number of detections: $count');
     expect(count, 16);
+  });
+
+  testWidgets('Detect table in a local image on-device',
+      (WidgetTester tester) async {
+    final imagePath =
+        await _getTestAssetPath('assets/images/P_20250718_203819.jpg');
+    final imageBytes = await File(imagePath).readAsBytes();
+    final img.Image? testImage = img.decodeImage(imageBytes);
+    assert(testImage != null, 'Failed to decode test asset');
+
+    final detectionService = TableDetectionService();
+    await detectionService.initialize();
+
+    final detections =
+        await detectionService.detectTableFromRGBImage(testImage!);
+    print('Table detections: $detections');
+    expect(detections.containsKey('quad_points'), isTrue);
+    expect(detections['quad_points'].length, 4);
+    expect(detections.containsKey('image'), isTrue);
   });
 }
 
@@ -33,7 +54,8 @@ Future<String> _getTestAssetPath(String assetName) async {
 
   final byteData = await rootBundle.load(assetName);
   final file = File(tempPath);
-  await file.writeAsBytes(byteData.buffer.asUint8List(byteData.offsetInBytes, byteData.lengthInBytes));
+  await file.writeAsBytes(
+      byteData.buffer.asUint8List(byteData.offsetInBytes, byteData.lengthInBytes));
 
   return file.path;
 }

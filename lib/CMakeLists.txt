@@ -41,6 +41,8 @@ if(BUILD_SHARED_LIB)
         if(NOT DEFINED ONNXRUNTIME_INCLUDE_DIR OR NOT DEFINED ONNXRUNTIME_LIBRARY_PATH)
             message(FATAL_ERROR "For Android builds, you must define ONNXRUNTIME_INCLUDE_DIR and ONNXRUNTIME_LIBRARY_PATH")
         endif()
+        # set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O2 -DNDEBUG")
+        # set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -march=armv8-a")
     elseif(IOS)
         message(STATUS "Configuring for iOS")
         # Add logic for iOS build (e.g., find_package or manual paths)
@@ -57,9 +59,10 @@ if(BUILD_SHARED_LIB)
 
     add_library(tableizer_lib SHARED ${LIB_SOURCES})
     target_compile_options(tableizer_lib PRIVATE
-        $<$<CONFIG:Debug>:-O0 -g>
-        $<$<CONFIG:Release>:-O3 -DNDEBUG>
-        -Wall -Wextra 
+        $<$<CONFIG:Debug>:-g>
+        $<$<CONFIG:Release>:-O2 -DNDEBUG -march=armv8-a -fno-tree-vectorize>
+        -Wall
+        -Wextra
     )
 
     target_include_directories(tableizer_lib PUBLIC
@@ -89,11 +92,25 @@ else()
     message(STATUS "OpenCV version: ${OpenCV_VERSION}")
     message(STATUS "OpenCV libraries: ${OpenCV_LIBS}")
 
-    add_executable(tableizer_app ${APP_SOURCES})
+    add_library(tableizer_lib STATIC ${LIB_SOURCES})
+    target_include_directories(tableizer_lib PUBLIC
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
+        ${OpenCV_INCLUDE_DIRS}
+        ${ONNXRuntime_ROOT}/include
+    )
+    target_link_libraries(tableizer_lib PUBLIC
+        ${OpenCV_LIBS}
+        onnxruntime
+    )
+
+    add_executable(tableizer_app src/main.cpp)
 
     # Link OpenCV and ONNX Runtime manually
-    target_link_libraries(tableizer_app
-        ${OpenCV_LIBS}
-        onnxruntime  # assumes libonnxruntime.dylib or libonnxruntime.so is in ONNXRuntime_ROOT/lib
+    target_link_libraries(tableizer_app PRIVATE
+        tableizer_lib
     )
 endif()
+
+# Always add the test subdirectory
+add_subdirectory(test)
+

@@ -5,11 +5,11 @@ import 'package:flutter/material.dart' hide BoxPainter;
 import 'package:flutter/services.dart';
 import 'package:image/image.dart' as img;
 import '../detection_box.dart';
-import '../services/detection_service.dart';
+import '../services/ball_detection_service.dart';
 import '../widgets/box_painter.dart';
 
 class DisplayPictureScreen extends StatefulWidget {
-  final DetectionService detectionService;
+  final BallDetectionService detectionService;
 
   const DisplayPictureScreen({super.key, required this.detectionService});
 

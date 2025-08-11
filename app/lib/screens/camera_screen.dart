@@ -1,12 +1,15 @@
 import 'dart:ui' as ui;
+import 'dart:convert';
 
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart' hide BoxPainter;
-import '../services/detection_service.dart';
+import '../services/table_detection_service.dart';
+import '../services/ball_detection_service.dart';
 import '../widgets/box_painter.dart';
 import '../detection_box.dart';
 import '../widgets/util_widgets.dart';
 import 'display_picture_screen.dart';
+import 'table_screen.dart';
 
 class CameraScreen extends StatefulWidget {
   const CameraScreen({super.key, required this.camera});
@@ -19,15 +22,16 @@ class CameraScreen extends StatefulWidget {
 class CameraScreenState extends State<CameraScreen> {
   late CameraController _controller;
   Future<void>? _initializeControllerFuture;
-  final DetectionService _detectionService = DetectionService();
-  List<Detection> _detections = [];
+  final BallDetectionService _ballDetectionService = BallDetectionService();
+  final TableDetectionService _tableDetectionService = TableDetectionService();
+  List<Detection> _ballDetections = [];
+  Map<String, dynamic> _tableDetections = {};
   bool _isProcessingFrame = false;
   ui.Size _imageSize = ui.Size(0, 0);
   ui.Size _sensorSize = ui.Size(0, 0);
   int _frameCounter = 0;
   int _lastFrameTime = 0;
   double _fps = 0.0;
-
 
   @override
   void initState() {
@@ -37,10 +41,10 @@ class CameraScreenState extends State<CameraScreen> {
 
   Future<void> _initializeEverything() async {
     _controller = CameraController(widget.camera, ResolutionPreset.high, enableAudio: false);
-    await _detectionService.initialize();
+    await _ballDetectionService.initialize();
+    await _tableDetectionService.initialize();
     await _controller.initialize();
-    final preview = _controller.value.previewSize!;   // e.g. 1280×720
-    // previewSize is always the sensor’s *native* orientation (landscape)
+    final preview = _controller.value.previewSize!;
     _sensorSize = ui.Size(preview.width, preview.height);
     if (mounted) {
       await _controller.startImageStream(_processCameraImage);
@@ -72,9 +76,8 @@ class CameraScreenState extends State<CameraScreen> {
   }
 
   Future<void> _updateDetections(CameraImage image) async {
-    // Run native inference directly on the YUV planes.
-    // This is much faster than converting to RGB.
-    _detections = await _detectionService.detectFromYUV(image);
+    //_ballDetections = await _ballDetectionService.detectFromYUV(image);
+    _tableDetections = await _tableDetectionService.detectTableFromYUV(image);
 
     if (mounted) {
       setState(() {});
@@ -87,7 +90,7 @@ class CameraScreenState extends State<CameraScreen> {
       _controller.stopImageStream();
     }
     _controller.dispose();
-    _detectionService.dispose();
+    _ballDetectionService.dispose();
     super.dispose();
   }
 
@@ -107,10 +110,15 @@ class CameraScreenState extends State<CameraScreen> {
               fit: StackFit.expand,
               children: [
                 CameraPreview(_controller),
+                if (_tableDetections.containsKey('image'))
+                  Image.memory(
+                    base64Decode(_tableDetections['image']),
+                    fit: BoxFit.fill,
+                  ),
                 CustomPaint(
                   painter: BoxPainter(
                     sensorSize: _sensorSize,
-                    detections: _detections,   // List<Detection>
+                    detections: _ballDetections,
                   ),
                 ),
                 Align(
@@ -134,8 +142,8 @@ class CameraScreenState extends State<CameraScreen> {
         onPressed: () {
           Navigator.of(context).push(
             MaterialPageRoute(
-              builder: (context) => DisplayPictureScreen(
-                detectionService: _detectionService,
+              builder: (context) => TableScreen(
+                tableDetectionService: _tableDetectionService,
               ),
             ),
           );
