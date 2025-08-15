@@ -104,7 +104,6 @@ WarpResult warpTable(const cv::Mat& bgrImg, const std::vector<cv::Point2f>& quad
     if (!rotate) {
         cv::warpPerspective(bgrImg, warped, Hpersp, {canvasW, outH});
         finalH = Hpersp.clone();
-        cv::imwrite(imagePath, warped);
         return {warped, finalH};
     }
 
@@ -114,7 +113,6 @@ WarpResult warpTable(const cv::Mat& bgrImg, const std::vector<cv::Point2f>& quad
 
     cv::warpPerspective(bgrImg, warped, finalH, {outH, canvasW});
 
-    cv::imwrite(imagePath, warped);
     return {warped, finalH};
 }
 

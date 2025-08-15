@@ -1,8 +1,9 @@
+#include <fstream>
 #include <iostream>
+#include <opencv2/opencv.hpp>
 #include <string>
 #include <vector>
-#include <fstream>
-#include <opencv2/opencv.hpp>
+
 #include "tableizer.hpp"
 #include "utilities.hpp"
 
@@ -22,7 +23,9 @@ std::string parseJson(const std::string& json, const std::string& key) {
 }
 
 int main() {
-    std::string image_path = "/Users/uzbit/Documents/projects/tableizer/app/assets/images/P_20250718_203819.jpg";
+#if LOCAL_BUILD
+    std::string image_path =
+        "/Users/uzbit/Documents/projects/tableizer/app/assets/images/P_20250718_203819.jpg";
     cv::Mat image = cv::imread(image_path, cv::IMREAD_COLOR);
 
     if (image.empty()) {
@@ -35,8 +38,8 @@ int main() {
     cv::cvtColor(image, rgba_image, cv::COLOR_BGR2RGBA);
 
     // Call the detection function
-    const char* result_json = detect_table_rgba(
-        rgba_image.data, rgba_image.cols, rgba_image.rows, rgba_image.channels());
+    const char* result_json =
+        detect_table_rgba(rgba_image.data, rgba_image.cols, rgba_image.rows, rgba_image.channels());
 
     if (result_json == nullptr) {
         std::cerr << "Error: detect_table_rgba returned null." << std::endl;
@@ -71,10 +74,12 @@ int main() {
         cv::waitKey(0);
 
     } catch (const std::exception& e) {
-        std::cerr << "An exception occurred during image decoding or display: " << e.what() << std::endl;
+        std::cerr << "An exception occurred during image decoding or display: " << e.what()
+                  << std::endl;
         return -1;
     }
 
     std::cout << "Test completed successfully." << std::endl;
     return 0;
+#endif
 }

@@ -1,15 +1,17 @@
+import 'dart:async';
+import 'dart:convert';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
-import 'dart:convert';
 
 import 'package:camerawesome/camerawesome_plugin.dart';
 import 'package:flutter/material.dart' hide BoxPainter;
 import 'package:image/image.dart' as img;
-import '../services/table_detection_service.dart';
 import '../services/ball_detection_service.dart';
-import '../widgets/box_painter.dart';
+import '../services/table_detection_service.dart';
+
 import '../detection_box.dart';
-import '../widgets/util_widgets.dart';
+import '../widgets/box_painter.dart';
+import '../widgets/table_painter.dart';
 import 'table_screen.dart';
 
 class CameraScreen extends StatefulWidget {
@@ -22,9 +24,9 @@ class CameraScreen extends StatefulWidget {
 class CameraScreenState extends State<CameraScreen> {
   final BallDetectionService _ballDetectionService = BallDetectionService();
   final TableDetectionService _tableDetectionService = TableDetectionService();
+  StreamSubscription<Map<String, dynamic>>? _tableDetectionsSubscription;
   List<Detection> _ballDetections = [];
   Map<String, dynamic> _tableDetections = {};
-  bool _isProcessingFrame = false;
   double _fps = 0.0;
   int _frameCounter = 0;
   int _lastFrameTime = 0;
@@ -35,23 +37,35 @@ class CameraScreenState extends State<CameraScreen> {
     _initializeServices();
   }
 
+  @override
+  void dispose() {
+    _tableDetectionsSubscription?.cancel();
+    _tableDetectionService.dispose();
+    super.dispose();
+  }
+
   Future<void> _initializeServices() async {
     await _ballDetectionService.initialize();
     await _tableDetectionService.initialize();
+    _tableDetectionsSubscription =
+        _tableDetectionService.detections.listen((detections) {
+      setState(() {
+        _tableDetections = detections;
+      });
+    });
   }
 
   Future<void> _processCameraImage(AnalysisImage image) async {
-    if (_isProcessingFrame) {
-      return;
-    }
-    _isProcessingFrame = true;
-
     final currentTime = DateTime.now().millisecondsSinceEpoch;
     if (_lastFrameTime != 0) {
       final int aSecondAgo = currentTime - 1000;
       _frameCounter++;
       if (_lastFrameTime < aSecondAgo) {
-        _fps = _frameCounter / ((currentTime - _lastFrameTime) / 1000.0);
+        if (mounted) {
+          setState(() {
+            _fps = _frameCounter / ((currentTime - _lastFrameTime) / 1000.0);
+          });
+        }
         _frameCounter = 0;
         _lastFrameTime = currentTime;
       }
@@ -59,82 +73,18 @@ class CameraScreenState extends State<CameraScreen> {
       _lastFrameTime = currentTime;
     }
 
-    await _updateDetections(image);
-
-    if (mounted) {
-      setState(() {});
-    }
-    _isProcessingFrame = false;
-  }
-
-  Future<void> _updateDetections(AnalysisImage image) async {
-    await image.when(
-      bgra8888: (frame) async {
-        final plane = frame.planes.first; // packed BGRA
-
-        // 1) Wrap the incoming BGRA buffer respecting row stride.
-        img.Image bgra = img.Image.fromBytes(
-          width: frame.width,
-          height: frame.height,
-          bytes: plane.bytes.buffer,        // ByteBuffer (not Uint8List)
-          rowStride: plane.bytesPerRow,     // respect padding
-          numChannels: 4,
-          order: img.ChannelOrder.bgra,
+    image.when(
+      bgra8888: (frame) {
+        _tableDetectionService.detectTableFromByteBuffer(
+          frame.planes.first.bytes,
+          frame.width,
+          frame.height,
         );
-
-        // 2) Rotate to portrait based on frame rotation.
-        // camerawesome typically provides rotation in degrees (0/90/180/270).
-        // final int rot = (frame.rotation ?? 90) % 360;
-        // if (rot == 90) {
-        //   bgra = img.copyRotate(bgra, angle: -90); // 90° CW
-        // } else if (rot == 180) {
-        //   bgra = img.copyRotate(bgra, angle: 180);
-        // } else if (rot == 270) {
-        //   bgra = img.copyRotate(bgra, angle: 90);  // 90° CCW
-        // }
-
-        // (Optional) Mirror if front camera delivers mirrored frames.
-        // If your API exposes a boolean, plug it here; default false.
-        // final bool mirrored = frame.isMirrored ?? false;
-        // if (mirrored) {
-        //   bgra = img.flipHorizontal(bgra);
-        // }
-
-        // 3) Convert BGRA -> RGBA efficiently (packed, no stride).
-        final img.Image rgba = img.Image.fromBytes(
-          width: bgra.width,
-          height: bgra.height,
-          bytes: bgra.getBytes(order: img.ChannelOrder.rgba).buffer,  // now tightly packed
-          numChannels: 4,
-          order: img.ChannelOrder.rgba,
-        );
-
-        // Debug preview — now upright and with correct colors.
-        // showFrameDebug(context, rgba);
-
-        // 4) (Optional) Send to native detector as tightly packed RGBA.
-        _nativeDetect(rgba);
       },
-
-      // Not used here, but keep handlers to satisfy the sealed union:
-      jpeg: (_) async {},
-      nv21: (_) async {},
-      yuv420: (_) async {},
+      jpeg: (_) {},
+      nv21: (_) {},
+      yuv420: (_) {},
     );
-  }
-
-  Future<void> _nativeDetect(img.Image rgba) async {
-    final tableDetections = await _tableDetectionService.detectTableFromRGBImage(rgba);
-
-    if (tableDetections.isNotEmpty) {
-      final ballDetections = await _ballDetectionService.detectFromRGBImage(rgba);
-      if (mounted) {
-        setState(() {
-          _tableDetections = tableDetections;
-          _ballDetections = ballDetections;
-        });
-      }
-    }
   }
 
   void showFrameDebug(BuildContext context, img.Image rgba) {
@@ -151,6 +101,12 @@ class CameraScreenState extends State<CameraScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final quadPoints = _tableDetections['quad_points'] as List<dynamic>?;
+    final points = quadPoints
+        ?.map((p) => Offset(p['x'].toDouble(), p['y'].toDouble()))
+        .toList() ??
+        [];
+
     return Scaffold(
       appBar: AppBar(title: const Text('Tableizer')),
       body: CameraAwesomeBuilder.custom(
@@ -170,15 +126,17 @@ class CameraScreenState extends State<CameraScreen> {
           return Stack(
             fit: StackFit.expand,
             children: [
-              if (_tableDetections.containsKey('image'))
-                Image.memory(
-                  base64Decode(_tableDetections['image']),
-                  fit: BoxFit.fill,
-                ),
+              //Positioned.fill(child: preview),
               CustomPaint(
                 painter: BoxPainter(
                   sensorSize: ui.Size(preview.rect.width, preview.rect.height),
                   detections: _ballDetections,
+                ),
+              ),
+              CustomPaint(
+                painter: TablePainter(
+                  sensorSize: ui.Size(preview.rect.width, preview.rect.height),
+                  quadPoints: points,
                 ),
               ),
               Align(

@@ -17,10 +17,14 @@ void main() {
     final img.Image? testImage = img.decodeImage(imageBytes);
     assert(testImage != null, 'Failed to decode test asset');
 
+    final img.Image rgbaImage = testImage!.convert(numChannels: 4);
+    final bytes = rgbaImage.getBytes(order: img.ChannelOrder.rgba);
+
     final detectionService = BallDetectionService();
     await detectionService.initialize();
 
-    final detections = await detectionService.detectFromRGBImage(testImage!);
+    final detections = await detectionService.detectFromByteBuffer(
+        bytes, rgbaImage.width, rgbaImage.height);
     final int count = detections.length;
     print('Number of detections: $count');
     expect(count, 16);
@@ -34,12 +38,15 @@ void main() {
     final img.Image? testImage = img.decodeImage(imageBytes);
     assert(testImage != null, 'Failed to decode test asset');
 
+    final img.Image rgbaImage = testImage!.convert(numChannels: 4);
+    final bytes = rgbaImage.getBytes(order: img.ChannelOrder.rgba);
+
     final detectionService = TableDetectionService();
     await detectionService.initialize();
 
-    final detections =
-        await detectionService.detectTableFromRGBImage(testImage!);
-    // print('Table detections: $detections');
+    final detections = await detectionService.detectTableFromByteBuffer(
+        bytes, rgbaImage.width, rgbaImage.height);
+    print('Table detections: $detections');
     expect(detections.containsKey('quad_points'), isTrue);
     expect(detections['quad_points'].length, 4);
     expect(detections.containsKey('image'), isTrue);

@@ -15,7 +15,7 @@ class CellularTableDetector {
 
    private:
     Mat prepareImage(const Mat &imgBgr);
-    Vec3f getMedianLab(const Mat &labImg, int cellR, int cellC);
+    Vec3f getMedianLab(const Mat &labImg, const Rect& cellRect);
     double deltaE2000(const Vec3f &lab1, const Vec3f &lab2);
     void drawCells(Mat &canvas, const Mat &insideMask);
 

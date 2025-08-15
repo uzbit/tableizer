@@ -31,13 +31,13 @@ if(BUILD_SHARED_LIB)
     #   -DANDROID_ABI="arm64-v8a" \
     #   -DANDROID_PLATFORM="android-24" \
     #   -DBUILD_SHARED_LIB=ON \
-    #   -DOpenCV_DIR="/Users/uzbit/Documents/projects/tableizer/lib/libs/opencv/build-android" \
+    #   -DOpenCV_DIR="/Users/uzbit/Documents/projects/tableizer/lib/libs/opencv/build-android-opt" \
     #   -DONNXRUNTIME_INCLUDE_DIR="/Users/uzbit/Documents/projects/other/onnxruntime/include" \
     #   -DONNXRUNTIME_LIBRARY_PATH="/Users/uzbit/Documents/projects/other/onnxruntime/build-android/Release/libonnxruntime.so"
 
     if(ANDROID)
         message(STATUS "Configuring for Android")
-        find_package(OpenCV REQUIRED NO_MODULE)
+        find_package(OpenCV REQUIRED COMPONENTS core imgproc dnn)
         if(NOT DEFINED ONNXRUNTIME_INCLUDE_DIR OR NOT DEFINED ONNXRUNTIME_LIBRARY_PATH)
             message(FATAL_ERROR "For Android builds, you must define ONNXRUNTIME_INCLUDE_DIR and ONNXRUNTIME_LIBRARY_PATH")
         endif()
@@ -59,7 +59,7 @@ if(BUILD_SHARED_LIB)
 
     add_library(tableizer_lib SHARED ${LIB_SOURCES})
     set_source_files_properties(src/table_detector.cpp PROPERTIES COMPILE_FLAGS "-O0")
-    add_compile_options(-O3 -fPIC -march=armv8-a)
+    add_compile_options(-O3 -fPIC -march=armv8-a -DOPENCV_DISABLE_TBB=ON -DWITH_PTHREADS_PF=OFF)
     # target_compile_options(tableizer_lib PRIVATE
     #     $<$<CONFIG:Debug>:-g>
     #     $<$<CONFIG:Release>:-g -DNDEBUG>

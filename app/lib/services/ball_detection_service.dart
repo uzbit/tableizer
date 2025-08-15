@@ -51,31 +51,26 @@ class BallDetectionService {
     }
   }
 
-  Future<List<Detection>> detectFromRGBImage(img.Image src) async {
+  Future<List<Detection>> detectFromByteBuffer(
+      Uint8List bytes, int width, int height) async {
     // Skip if detector busy or not initialised.
     if (_isDetecting || _detector == nullptr) return const [];
 
     _isDetecting = true;
 
     Pointer<Uint8>? pixelPtr;
-    Pointer<Utf8>?  jsonPtr;
+    Pointer<Utf8>? jsonPtr;
 
     try {
-      // ── Ensure 4-channel RGBA (conversion is a no-op if already RGBA) ───────
-      final img.Image rgba =
-      src.numChannels == 4 ? src : src.convert(numChannels: 4);
-
       // ── Copy pixels into native buffer ─────────────────────────────────────
-      final bytes = rgba.getBytes(order: img.ChannelOrder.rgba);
-      pixelPtr = calloc<Uint8>(bytes.length)
-        ..asTypedList(bytes.length).setAll(0, bytes);
+      pixelPtr = calloc<Uint8>(bytes.length);
+      pixelPtr.asTypedList(bytes.length).setAll(0, bytes);
 
       // ── Native inference call ─────────────────────────────────────────────
-      jsonPtr = _detectObjectsRGBA(
-          _detector, pixelPtr, rgba.width, rgba.height, 4);
+      jsonPtr = _detectObjectsRGBA(_detector, pixelPtr, width, height, 4);
 
       final jsonStr = jsonPtr.toDartString();
-      print('JSON Detection: $jsonStr');          // always log result
+      print('JSON Detection: $jsonStr'); // always log result
 
       if (jsonStr.isEmpty) return const [];
       return Detections.fromJson(jsonStr).detections;

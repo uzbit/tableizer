@@ -1,61 +1,82 @@
+import 'dart:async';
+import 'dart:convert';
 import 'dart:ffi' hide Size;
 import 'dart:io';
-import 'dart:convert';
+import 'dart:isolate';
 
 import 'package:ffi/ffi.dart';
 import 'package:flutter/services.dart';
-import 'package:image/image.dart' as img;
+import 'detection_isolate.dart';
 
 // --- FFI Signatures ---
-typedef DetectTableRGBAC = Pointer<Utf8> Function(Pointer<Uint8> imageBytes, Int32 width, Int32 height, Int32 channels);
-typedef DetectTableRGBADart = Pointer<Utf8> Function(Pointer<Uint8> imageBytes, int width, int height, int channels);
+typedef DetectTableRGBAC = Pointer<Utf8> Function(
+    Pointer<Uint8> imageBytes, Int32 width, Int32 height, Int32 channels);
+typedef DetectTableRGBADart = Pointer<Utf8> Function(
+    Pointer<Uint8> imageBytes, int width, int height, int channels);
 
 class TableDetectionService {
   late final DetectTableRGBADart _detectTableRGBA;
+  final Completer<void> _isolateReady = Completer<void>();
+  final StreamController<Map<String, dynamic>> _detectionsController =
+      StreamController<Map<String, dynamic>>.broadcast();
 
+  Isolate? _isolate;
+  SendPort? _sendPort;
+  ReceivePort? _receivePort;
   bool _isDetecting = false;
   bool _isInitialized = false;
+
+  Stream<Map<String, dynamic>> get detections => _detectionsController.stream;
 
   // ────────── PUBLIC API ──────────
   Future<void> initialize() async {
     if (_isInitialized) return;
     await _loadLibrary();
+    await _initIsolate();
     _isInitialized = true;
   }
 
-  Future<Map<String, dynamic>> detectTableFromRGBImage(img.Image src) async {
-    if (_isDetecting || !_isInitialized) return const {};
+  void dispose() {
+    _receivePort?.close();
+    _isolate?.kill(priority: Isolate.immediate);
+    _detectionsController.close();
+  }
+
+  Future<Map<String, dynamic>> detectTableFromByteBuffer(
+      Uint8List bytes, int width, int height) async {
+    if (!_isInitialized) return const {};
+    await _isolateReady.future;
+
+    if (_isDetecting) return const {};
     _isDetecting = true;
 
-    Pointer<Uint8>? pixelPtr;
-    Pointer<Utf8>?  jsonPtr;
-
-    try {
-      final img.Image rgba =
-      src.numChannels == 4 ? src : src.convert(numChannels: 4);
-
-      final bytes = rgba.getBytes(order: img.ChannelOrder.rgba);
-      pixelPtr = calloc<Uint8>(bytes.length)
-        ..asTypedList(bytes.length).setAll(0, bytes);
-
-      jsonPtr = _detectTableRGBA(
-          pixelPtr, rgba.width, rgba.height, 4);
-
-      final result = jsonDecode(jsonPtr.toDartString());
-      print('JSON RGBA Table Detection: ${result["quad_points"]}');
-      return result;
-
-    } catch (e, st) {
-      print('detectFromImage error: $e');
-      print(st);
-      return const {};
-    } finally {
-      if (pixelPtr != null) calloc.free(pixelPtr);
-      _isDetecting = false;
-    }
+    _sendPort?.send({
+      'bytes': bytes,
+      'width': width,
+      'height': height,
+    });
+    return const {};
   }
 
   // ────────── PRIVATE HELPERS ──────────
+  Future<void> _initIsolate() async {
+    _receivePort = ReceivePort();
+    _isolate = await Isolate.spawn(
+      DetectionIsolate.init,
+      _receivePort!.sendPort,
+    );
+
+    _receivePort!.listen((message) {
+      if (message is SendPort) {
+        _sendPort = message;
+        _isolateReady.complete();
+      } else {
+        _detectionsController.add(message as Map<String, dynamic>);
+        _isDetecting = false;
+      }
+    });
+  }
+
   Future<void> _loadLibrary() async {
     final dylib = Platform.isAndroid
         ? DynamicLibrary.open('libtableizer_lib.so')

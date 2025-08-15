@@ -17,12 +17,11 @@
 using namespace std;
 using namespace cv;
 
-#define IMSHOW true
 #define CONF_THRESH 0.6
 #define IOU_THRESH 0.5
 
 int runTableizerForImage(Mat image, BallDetector& ballDetector) {
-#if IMSHOW
+#if LOCAL_BUILD
     imshow("Table", image);
     waitKey(0);
 #endif
@@ -43,7 +42,7 @@ int runTableizerForImage(Mat image, BallDetector& ballDetector) {
     std::vector<cv::Point2f> quadPoints =
         tableDetector.quadFromInside(mask, tableDetection.cols, tableDetection.rows);
 
-#if IMSHOW
+#if LOCAL_BUILD
     std::vector<cv::Point> quadDraw;
     quadDraw.reserve(quadPoints.size());
 
@@ -55,12 +54,10 @@ int runTableizerForImage(Mat image, BallDetector& ballDetector) {
 #endif
     if (quadPoints.size() != 4) {
         cerr << "Error: Could not detect table quad." << endl;
-        imshow("Debug: No Quad Found", tableDetection);
-        waitKey(0);
         return -1;
     }
 
-#if IMSHOW
+#if LOCAL_BUILD
     cout << "Detected table quad corners (in resized image coordinates):" << endl;
     for (const auto& p : quadPoints) {
         cout << "  - (" << p.x << ", " << p.y << ")" << endl;
@@ -97,10 +94,11 @@ int runTableizerForImage(Mat image, BallDetector& ballDetector) {
 
     // 6. Draw predictions on the canonical table and shot-studio template
     // --------------------------------------------------------
+#if LOCAL_BUILD
     string studioPath =
         "/Users/uzbit/Documents/projects/tableizer/data/shotstudio_table_felt_only.png";
     cv::Mat shotStudio = cv::imread(studioPath);
-
+#endif
     cv::Mat warpedOut = warpResult.warped.clone();  // copy for drawing
     const cv::Scalar textColor(255, 255, 255);      // white id
 
@@ -133,7 +131,7 @@ int runTableizerForImage(Mat image, BallDetector& ballDetector) {
             cout << "  • class " << detections[i].classId << " conf " << detections[i].confidence
                  << " @ (" << p.x << ", " << p.y << ")\n";
 
-#if IMSHOW
+#if LOCAL_BUILD
             cv::Scalar ballColor;
             switch (detections[i].classId) {
                 case 3:
@@ -171,7 +169,7 @@ int runTableizerForImage(Mat image, BallDetector& ballDetector) {
         cout << endl;
     }
 
-#if IMSHOW
+#if LOCAL_BUILD
     // 7. Display results
     cv::imshow("Warped Table + Balls", warpedOut);
     if (!shotStudio.empty()) {
@@ -233,6 +231,8 @@ void* initialize_detector(const char* model_path) {
 
 const char* detect_objects_rgba(void* detector_ptr, const unsigned char* image_bytes, int width,
                                 int height, int channels) {
+    // cv::setNumThreads(0);
+    // cv::setUseOptimized(false);
     static std::string result_str;
     if (!detector_ptr) {
         result_str = "{\"error\": \"Invalid detector instance\"}";
@@ -359,21 +359,6 @@ const char* detect_table_yuv(uint8_t* y_plane, uint8_t* u_plane, uint8_t* v_plan
         std::vector<cv::Point2f> quadPoints =
             tableDetector.quadFromInside(mask, tableDetection.cols, tableDetection.rows);
 
-        if (quadPoints.size() == 4) {
-            std::vector<cv::Point> quadDraw;
-            quadDraw.reserve(quadPoints.size());
-            for (const auto& pt : quadPoints) {
-                quadDraw.emplace_back(cvRound(pt.x), cvRound(pt.y));
-            }
-            cv::polylines(tableDetection, quadDraw, true, cv::Scalar(0, 0, 255), 5);
-        }
-
-        // Encode image to base64
-        std::vector<uchar> buf;
-        cv::imencode(".jpg", tableDetection, buf);
-        auto base64_png = reinterpret_cast<const unsigned char*>(buf.data());
-        std::string base64_image = base64_encode(base64_png, buf.size());
-
         // Format results as a JSON string
         std::string json = "{\"quad_points\": [";
         for (size_t i = 0; i < quadPoints.size(); ++i) {
@@ -383,7 +368,7 @@ const char* detect_table_yuv(uint8_t* y_plane, uint8_t* u_plane, uint8_t* v_plan
                 json += ", ";
             }
         }
-        json += "], \"image\": \"" + base64_image + "\"}";
+        json += "]}";
 
         result_str = json;
         return result_str.c_str();
@@ -396,6 +381,8 @@ const char* detect_table_yuv(uint8_t* y_plane, uint8_t* u_plane, uint8_t* v_plan
 
 const char* detect_table_rgba(const unsigned char* image_bytes, int width, int height,
                               int channels) {
+    // cv::setNumThreads(0);
+    // cv::setUseOptimized(false);
     static std::string result_str;
 
     try {
@@ -419,21 +406,6 @@ const char* detect_table_rgba(const unsigned char* image_bytes, int width, int h
         std::vector<cv::Point2f> quadPoints =
             tableDetector.quadFromInside(mask, tableDetection.cols, tableDetection.rows);
 
-        if (quadPoints.size() == 4) {
-            std::vector<cv::Point> quadDraw;
-            quadDraw.reserve(quadPoints.size());
-            for (const auto& pt : quadPoints) {
-                quadDraw.emplace_back(cvRound(pt.x), cvRound(pt.y));
-            }
-            cv::polylines(tableDetection, quadDraw, true, cv::Scalar(0, 0, 255), 5);
-        }
-
-        // Encode image to base64
-        std::vector<uchar> buf;
-        cv::imencode(".jpg", tableDetection, buf);
-        auto base64_png = reinterpret_cast<const unsigned char*>(buf.data());
-        std::string base64_image = base64_encode(base64_png, buf.size());
-
         // Format results as a JSON string
         std::string json = "{\"quad_points\": [";
         for (size_t i = 0; i < quadPoints.size(); ++i) {
@@ -443,7 +415,7 @@ const char* detect_table_rgba(const unsigned char* image_bytes, int width, int h
                 json += ", ";
             }
         }
-        json += "], \"image\": \"" + base64_image + "\"}";
+        json += "]}";
 
         result_str = json;
         return result_str.c_str();

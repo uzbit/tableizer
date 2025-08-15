@@ -40,19 +40,6 @@ class _DisplayPictureScreenState extends State<DisplayPictureScreen> {
     });
   }
 
-  Future<void> _processImage() async {
-    if (_imageBytes == null) return;
-
-    final img.Image? image = img.decodeImage(_imageBytes!);
-    if (image == null) return;
-
-    final detections = await widget.detectionService.detectFromRGBImage(image);
-    setState(() {
-      _detections = detections;
-    });
-    await _drawBoxes();
-  }
-
   Future<void> _drawBoxes() async {
     if (_image == null) return;
     final recorder = ui.PictureRecorder();
@@ -93,13 +80,6 @@ class _DisplayPictureScreenState extends State<DisplayPictureScreen> {
                       )
                     : Image.memory(_imageBytes!))
                 : const Center(child: CircularProgressIndicator()),
-          ),
-          Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: ElevatedButton(
-              onPressed: _processImage,
-              child: const Text('Detect'),
-            ),
           ),
         ],
       ),

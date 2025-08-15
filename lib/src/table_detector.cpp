@@ -12,6 +12,10 @@ CellularTableDetector::CellularTableDetector(int resizeHeight, int cellSize, dou
     : resizeHeight(resizeHeight), cellSize(cellSize), deltaEThreshold(deltaEThreshold) {}
 
 Mat CellularTableDetector::prepareImage(const Mat &imgBgr) {
+    if (imgBgr.empty()) {
+        std::cerr << "Error: input image is empty!" << std::endl;
+        return imgBgr;
+    }
     Mat small;
     float scale = (float)resizeHeight / imgBgr.rows;
     resize(imgBgr, small, Size(0, 0), scale, scale, INTER_AREA);
@@ -32,21 +36,14 @@ Mat CellularTableDetector::prepareImage(const Mat &imgBgr) {
     return lab_float;
 }
 
-Vec3f CellularTableDetector::getMedianLab(const Mat &labImg, int cellR, int cellC) {
-    int y1 = cellR * cellSize;
-    int x1 = cellC * cellSize;
-    int y2 = min(y1 + cellSize, labImg.rows);
-    int x2 = min(x1 + cellSize, labImg.cols);
-
-    Mat cell = labImg(Rect(x1, y1, x2 - x1, y2 - y1)).clone();           // CV_32FC3
-    Mat cellReshaped = cell.reshape(3, static_cast<int>(cell.total()));  // CV_32FC3 [N x 1 x 3]
+Vec3f CellularTableDetector::getMedianLab(const Mat &labImg, const Rect& cellRect) {
+    Mat cell = labImg(cellRect);
+    Mat cellReshaped = cell.reshape(3, static_cast<int>(cell.total()));
     CV_Assert(cellReshaped.type() == CV_32FC3);
 
-    vector<float> L;
+    vector<float> L, A, B;
     L.reserve(cellReshaped.rows);
-    vector<float> A;
     A.reserve(cellReshaped.rows);
-    vector<float> B;
     B.reserve(cellReshaped.rows);
 
     for (int i = 0; i < cellReshaped.rows; ++i) {
@@ -84,7 +81,12 @@ void CellularTableDetector::detect(const Mat &imgBgr, Mat &mask, Mat &debugDraw)
     int centreR = rows / 2;
     int centreC = cols / 2;
 
-    Vec3f refLab = getMedianLab(labImg, centreR, centreC);
+    int y1 = centreR * cellSize;
+    int x1 = centreC * cellSize;
+    int y2 = min(y1 + cellSize, labImg.rows);
+    int x2 = min(x1 + cellSize, labImg.cols);
+    Rect centerRect(x1, y1, x2 - x1, y2 - y1);
+    Vec3f refLab = getMedianLab(labImg, centerRect);
 
     vector<Point> queue;
     queue.push_back(Point(centreC, centreR));
@@ -96,7 +98,12 @@ void CellularTableDetector::detect(const Mat &imgBgr, Mat &mask, Mat &debugDraw)
         int r = p.y;
         int c = p.x;
 
-        Vec3f cellLab = getMedianLab(labImg, r, c);
+        y1 = r * cellSize;
+        x1 = c * cellSize;
+        y2 = min(y1 + cellSize, labImg.rows);
+        x2 = min(x1 + cellSize, labImg.cols);
+        Rect cellRect(x1, y1, x2 - x1, y2 - y1);
+        Vec3f cellLab = getMedianLab(labImg, cellRect);
         if (deltaE2000(refLab, cellLab) < deltaEThreshold) {
             inside.at<uchar>(r, c) = 1;
             for (int dr = -1; dr <= 1; ++dr) {
