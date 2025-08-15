@@ -37,7 +37,7 @@ Mat CellularTableDetector::prepareImage(const Mat &imgBgr) {
 }
 
 Vec3f CellularTableDetector::getMedianLab(const Mat &labImg, const Rect& cellRect) {
-    Mat cell = labImg(cellRect);
+    Mat cell = labImg(cellRect).clone();
     Mat cellReshaped = cell.reshape(3, static_cast<int>(cell.total()));
     CV_Assert(cellReshaped.type() == CV_32FC3);
 

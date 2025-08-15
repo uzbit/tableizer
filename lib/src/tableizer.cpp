@@ -4,15 +4,15 @@
 #include <opencv2/opencv.hpp>
 #include <vector>
 
-#ifdef BUILD_SHARED_LIB
+#include "ball_detector.hpp"
+#include "table_detector.hpp"
+#include "utilities.hpp"
+
+#if !LOCAL_BUILD
 #include <onnxruntime/core/session/onnxruntime_cxx_api.h>
 #else
 #include <onnxruntime/onnxruntime_cxx_api.h>
 #endif
-
-#include "ball_detector.hpp"
-#include "table_detector.hpp"
-#include "utilities.hpp"
 
 using namespace std;
 using namespace cv;
@@ -320,8 +320,7 @@ const char* detect_objects_yuv(void* detector_ptr, uint8_t* y_plane, uint8_t* u_
     }
 }
 
-const char* detect_table_yuv(uint8_t* y_plane, uint8_t* u_plane, uint8_t* v_plane, int width,
-                             int height, int y_stride, int u_stride, int v_stride) {
+const char* detect_table_yuv(uint8_t* y_plane, uint8_t* u_plane, uint8_t* v_plane, int width,                             int height, int y_stride, int u_stride, int v_stride) {
     static std::string result_str;
 
     try {
@@ -359,6 +358,21 @@ const char* detect_table_yuv(uint8_t* y_plane, uint8_t* u_plane, uint8_t* v_plan
         std::vector<cv::Point2f> quadPoints =
             tableDetector.quadFromInside(mask, tableDetection.cols, tableDetection.rows);
 
+        if (quadPoints.size() == 4) {
+            std::vector<cv::Point> quadDraw;
+            quadDraw.reserve(quadPoints.size());
+            for (const auto& pt : quadPoints) {
+                quadDraw.emplace_back(cvRound(pt.x), cvRound(pt.y));
+            }
+            cv::polylines(tableDetection, quadDraw, true, cv::Scalar(0, 0, 255), 5);
+        }
+
+        // Encode image to base64
+        std::vector<uchar> buf;
+        cv::imencode(".jpg", tableDetection, buf);
+        auto base64_png = reinterpret_cast<const unsigned char*>(buf.data());
+        std::string base64_image = base64_encode(base64_png, buf.size());
+
         // Format results as a JSON string
         std::string json = "{\"quad_points\": [";
         for (size_t i = 0; i < quadPoints.size(); ++i) {
@@ -368,7 +382,7 @@ const char* detect_table_yuv(uint8_t* y_plane, uint8_t* u_plane, uint8_t* v_plan
                 json += ", ";
             }
         }
-        json += "]}";
+        json += "], \"image\": \"" + base64_image + "\"}";
 
         result_str = json;
         return result_str.c_str();
@@ -395,7 +409,7 @@ const char* detect_table_rgba(const unsigned char* image_bytes, int width, int h
 
         // Convert to BGR for processing if needed by the model
         cv::Mat bgr;
-        cv::cvtColor(image, bgr, cv::COLOR_RGBA2BGR);
+        cv::cvtColor(image, bgr, cv::COLOR_BGRA2BGR);
 
         // Detect table
         int cellSize = 20;
@@ -406,6 +420,21 @@ const char* detect_table_rgba(const unsigned char* image_bytes, int width, int h
         std::vector<cv::Point2f> quadPoints =
             tableDetector.quadFromInside(mask, tableDetection.cols, tableDetection.rows);
 
+        if (quadPoints.size() == 4) {
+            std::vector<cv::Point> quadDraw;
+            quadDraw.reserve(quadPoints.size());
+            for (const auto& pt : quadPoints) {
+                quadDraw.emplace_back(cvRound(pt.x), cvRound(pt.y));
+            }
+            cv::polylines(tableDetection, quadDraw, true, cv::Scalar(0, 0, 255), 5);
+        }
+
+        // Encode image to base64
+        std::vector<uchar> buf;
+        cv::imencode(".jpg", tableDetection, buf);
+        auto base64_png = reinterpret_cast<const unsigned char*>(buf.data());
+        std::string base64_image = base64_encode(base64_png, buf.size());
+
         // Format results as a JSON string
         std::string json = "{\"quad_points\": [";
         for (size_t i = 0; i < quadPoints.size(); ++i) {
@@ -415,7 +444,7 @@ const char* detect_table_rgba(const unsigned char* image_bytes, int width, int h
                 json += ", ";
             }
         }
-        json += "]}";
+        json += "], \"image\": \"" + base64_image + "\"}";
 
         result_str = json;
         return result_str.c_str();

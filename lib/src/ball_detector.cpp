@@ -1,6 +1,8 @@
 #include "ball_detector.hpp"
 
-#ifdef BUILD_SHARED_LIB
+#include "utilities.hpp"
+
+#if !LOCAL_BUILD
 #include <onnxruntime/core/session/onnxruntime_cxx_api.h>
 #else
 #include <onnxruntime/onnxruntime_cxx_api.h>

@@ -49,6 +49,7 @@ class CameraScreenState extends State<CameraScreen> {
     await _tableDetectionService.initialize();
     _tableDetectionsSubscription =
         _tableDetectionService.detections.listen((detections) {
+      print('Quad points received: ${detections['quad_points']}');
       setState(() {
         _tableDetections = detections;
       });
@@ -75,6 +76,16 @@ class CameraScreenState extends State<CameraScreen> {
 
     image.when(
       bgra8888: (frame) {
+        // For debugging: convert the frame to a displayable image and show it.
+        final image = img.Image.fromBytes(
+          width: frame.width,
+          height: frame.height,
+          bytes: frame.planes.first.bytes.buffer,
+          order: img.ChannelOrder.rgba, // Based on byte log, the order is RGBA
+        );
+        showFrameDebug(context, image);
+
+        // Continue with the detection
         _tableDetectionService.detectTableFromByteBuffer(
           frame.planes.first.bytes,
           frame.width,
@@ -126,7 +137,11 @@ class CameraScreenState extends State<CameraScreen> {
           return Stack(
             fit: StackFit.expand,
             children: [
-              //Positioned.fill(child: preview),
+              if (_tableDetections.containsKey('image'))
+                Image.memory(
+                  base64Decode(_tableDetections['image']),
+                  fit: BoxFit.fill,
+                ),
               CustomPaint(
                 painter: BoxPainter(
                   sensorSize: ui.Size(preview.rect.width, preview.rect.height),
@@ -146,6 +161,16 @@ class CameraScreenState extends State<CameraScreen> {
                   child: Text(
                     'FPS: ${_fps.toStringAsFixed(1)}',
                     style: const TextStyle(color: Colors.white, fontSize: 20),
+                  ),
+                ),
+              ),
+              Align(
+                alignment: Alignment.bottomLeft,
+                child: Container(
+                  color: Colors.black.withOpacity(0.5),
+                  child: Text(
+                    'Points: ${points.toString()}',
+                    style: const TextStyle(color: Colors.white, fontSize: 12),
                   ),
                 ),
               ),

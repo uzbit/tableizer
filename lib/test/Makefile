@@ -57,10 +57,10 @@ RM = /opt/homebrew/bin/cmake -E rm -f
 EQUALS = =
 
 # The top-level source directory on which CMake was run.
-CMAKE_SOURCE_DIR = /Users/uzbit/Documents/projects/tableizer/lib/test
+CMAKE_SOURCE_DIR = /Users/uzbit/Documents/projects/tableizer/lib
 
 # The top-level build directory on which CMake was run.
-CMAKE_BINARY_DIR = /Users/uzbit/Documents/projects/tableizer/lib/test
+CMAKE_BINARY_DIR = /Users/uzbit/Documents/projects/tableizer/lib
 
 #=============================================================================
 # Targets provided globally by CMake.
@@ -87,14 +87,14 @@ rebuild_cache/fast: rebuild_cache
 
 # The main all target
 all: cmake_check_build_system
-	$(CMAKE_COMMAND) -E cmake_progress_start /Users/uzbit/Documents/projects/tableizer/lib/test/CMakeFiles /Users/uzbit/Documents/projects/tableizer/lib/test//CMakeFiles/progress.marks
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 all
-	$(CMAKE_COMMAND) -E cmake_progress_start /Users/uzbit/Documents/projects/tableizer/lib/test/CMakeFiles 0
+	cd /Users/uzbit/Documents/projects/tableizer/lib && $(CMAKE_COMMAND) -E cmake_progress_start /Users/uzbit/Documents/projects/tableizer/lib/CMakeFiles /Users/uzbit/Documents/projects/tableizer/lib/test//CMakeFiles/progress.marks
+	cd /Users/uzbit/Documents/projects/tableizer/lib && $(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 test/all
+	$(CMAKE_COMMAND) -E cmake_progress_start /Users/uzbit/Documents/projects/tableizer/lib/CMakeFiles 0
 .PHONY : all
 
 # The main clean target
 clean:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 clean
+	cd /Users/uzbit/Documents/projects/tableizer/lib && $(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 test/clean
 .PHONY : clean
 
 # The main clean target
@@ -103,30 +103,31 @@ clean/fast: clean
 
 # Prepare targets for installation.
 preinstall: all
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 preinstall
+	cd /Users/uzbit/Documents/projects/tableizer/lib && $(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 test/preinstall
 .PHONY : preinstall
 
 # Prepare targets for installation.
 preinstall/fast:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 preinstall
+	cd /Users/uzbit/Documents/projects/tableizer/lib && $(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 test/preinstall
 .PHONY : preinstall/fast
 
 # clear depends
 depend:
-	$(CMAKE_COMMAND) -S$(CMAKE_SOURCE_DIR) -B$(CMAKE_BINARY_DIR) --check-build-system CMakeFiles/Makefile.cmake 1
+	cd /Users/uzbit/Documents/projects/tableizer/lib && $(CMAKE_COMMAND) -S$(CMAKE_SOURCE_DIR) -B$(CMAKE_BINARY_DIR) --check-build-system CMakeFiles/Makefile.cmake 1
 .PHONY : depend
 
-#=============================================================================
-# Target rules for targets named table_detection_test
+# Convenience name for target.
+test/CMakeFiles/table_detection_test.dir/rule:
+	cd /Users/uzbit/Documents/projects/tableizer/lib && $(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 test/CMakeFiles/table_detection_test.dir/rule
+.PHONY : test/CMakeFiles/table_detection_test.dir/rule
 
-# Build rule for target.
-table_detection_test: cmake_check_build_system
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 table_detection_test
+# Convenience name for target.
+table_detection_test: test/CMakeFiles/table_detection_test.dir/rule
 .PHONY : table_detection_test
 
 # fast build rule for target.
 table_detection_test/fast:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/table_detection_test.dir/build.make CMakeFiles/table_detection_test.dir/build
+	cd /Users/uzbit/Documents/projects/tableizer/lib && $(MAKE) $(MAKESILENT) -f test/CMakeFiles/table_detection_test.dir/build.make test/CMakeFiles/table_detection_test.dir/build
 .PHONY : table_detection_test/fast
 
 test_table_detection.o: test_table_detection.cpp.o
@@ -134,7 +135,7 @@ test_table_detection.o: test_table_detection.cpp.o
 
 # target to build an object file
 test_table_detection.cpp.o:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/table_detection_test.dir/build.make CMakeFiles/table_detection_test.dir/test_table_detection.cpp.o
+	cd /Users/uzbit/Documents/projects/tableizer/lib && $(MAKE) $(MAKESILENT) -f test/CMakeFiles/table_detection_test.dir/build.make test/CMakeFiles/table_detection_test.dir/test_table_detection.cpp.o
 .PHONY : test_table_detection.cpp.o
 
 test_table_detection.i: test_table_detection.cpp.i
@@ -142,7 +143,7 @@ test_table_detection.i: test_table_detection.cpp.i
 
 # target to preprocess a source file
 test_table_detection.cpp.i:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/table_detection_test.dir/build.make CMakeFiles/table_detection_test.dir/test_table_detection.cpp.i
+	cd /Users/uzbit/Documents/projects/tableizer/lib && $(MAKE) $(MAKESILENT) -f test/CMakeFiles/table_detection_test.dir/build.make test/CMakeFiles/table_detection_test.dir/test_table_detection.cpp.i
 .PHONY : test_table_detection.cpp.i
 
 test_table_detection.s: test_table_detection.cpp.s
@@ -150,7 +151,7 @@ test_table_detection.s: test_table_detection.cpp.s
 
 # target to generate assembly for a file
 test_table_detection.cpp.s:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/table_detection_test.dir/build.make CMakeFiles/table_detection_test.dir/test_table_detection.cpp.s
+	cd /Users/uzbit/Documents/projects/tableizer/lib && $(MAKE) $(MAKESILENT) -f test/CMakeFiles/table_detection_test.dir/build.make test/CMakeFiles/table_detection_test.dir/test_table_detection.cpp.s
 .PHONY : test_table_detection.cpp.s
 
 # Help Target
@@ -176,6 +177,6 @@ help:
 # No rule that depends on this can have commands that come from listfiles
 # because they might be regenerated.
 cmake_check_build_system:
-	$(CMAKE_COMMAND) -S$(CMAKE_SOURCE_DIR) -B$(CMAKE_BINARY_DIR) --check-build-system CMakeFiles/Makefile.cmake 0
+	cd /Users/uzbit/Documents/projects/tableizer/lib && $(CMAKE_COMMAND) -S$(CMAKE_SOURCE_DIR) -B$(CMAKE_BINARY_DIR) --check-build-system CMakeFiles/Makefile.cmake 0
 .PHONY : cmake_check_build_system
 
