@@ -4,11 +4,11 @@
 #include <opencv2/opencv.hpp>
 #include <vector>
 
-// #ifdef BUILD_SHARED_LIB
-// #include <onnxruntime/core/session/onnxruntime_cxx_api.h>
-// #else
+#ifdef BUILD_SHARED_LIB
+#include <onnxruntime/core/session/onnxruntime_cxx_api.h>
+#else
 #include <onnxruntime/onnxruntime_cxx_api.h>
-// #endif
+#endif
 
 #include "ball_detector.hpp"
 #include "table_detector.hpp"

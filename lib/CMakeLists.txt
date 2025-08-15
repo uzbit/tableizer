@@ -25,19 +25,19 @@ if(BUILD_SHARED_LIB)
     add_definitions(-DBUILD_SHARED_LIB)
     # --- Cross-Platform Dependency Paths ---
     # export ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/29.0.13599879 
-    #     cmake -S . -B build-android \
+    # cmake -S . -B build-android \
     #   -DCMAKE_BUILD_TYPE=Release \
     #   -DCMAKE_TOOLCHAIN_FILE="$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake" \
     #   -DANDROID_ABI="arm64-v8a" \
     #   -DANDROID_PLATFORM="android-24" \
     #   -DBUILD_SHARED_LIB=ON \
-    #   -DOpenCV_DIR="/Users/uzbit/Documents/projects/tableizer/lib/libs/OpenCV-android-sdk/sdk/native/jni" \
+    #   -DOpenCV_DIR="/Users/uzbit/Documents/projects/tableizer/lib/libs/opencv/build-android" \
     #   -DONNXRUNTIME_INCLUDE_DIR="/Users/uzbit/Documents/projects/other/onnxruntime/include" \
     #   -DONNXRUNTIME_LIBRARY_PATH="/Users/uzbit/Documents/projects/other/onnxruntime/build-android/Release/libonnxruntime.so"
 
     if(ANDROID)
         message(STATUS "Configuring for Android")
-        find_package(OpenCV REQUIRED)
+        find_package(OpenCV REQUIRED NO_MODULE)
         if(NOT DEFINED ONNXRUNTIME_INCLUDE_DIR OR NOT DEFINED ONNXRUNTIME_LIBRARY_PATH)
             message(FATAL_ERROR "For Android builds, you must define ONNXRUNTIME_INCLUDE_DIR and ONNXRUNTIME_LIBRARY_PATH")
         endif()
@@ -54,16 +54,18 @@ if(BUILD_SHARED_LIB)
         set(ONNXRuntime_ROOT "/opt/homebrew") # Local dev path
         set(ONNXRUNTIME_INCLUDE_DIR ${ONNXRuntime_ROOT}/include)
         set(ONNXRUNTIME_LIBRARY_PATH ${ONNXRuntime_ROOT}/lib/libonnxruntime.dylib) # Be specific
-        find_package(OpenCV REQUIRED)
+        find_package(OpenCV REQUIRED NO_MODULE)
     endif()
 
     add_library(tableizer_lib SHARED ${LIB_SOURCES})
-    target_compile_options(tableizer_lib PRIVATE
-        $<$<CONFIG:Debug>:-g>
-        $<$<CONFIG:Release>:-O2 -DNDEBUG -march=armv8-a -fno-tree-vectorize>
-        -Wall
-        -Wextra
-    )
+    set_source_files_properties(src/table_detector.cpp PROPERTIES COMPILE_FLAGS "-O0")
+    add_compile_options(-O3 -fPIC -march=armv8-a)
+    # target_compile_options(tableizer_lib PRIVATE
+    #     $<$<CONFIG:Debug>:-g>
+    #     $<$<CONFIG:Release>:-g -DNDEBUG>
+    #     -Wall
+    #     -Wextra
+    # )
 
     target_include_directories(tableizer_lib PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}/include

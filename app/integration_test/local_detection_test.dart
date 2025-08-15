@@ -39,7 +39,7 @@ void main() {
 
     final detections =
         await detectionService.detectTableFromRGBImage(testImage!);
-    print('Table detections: $detections');
+    // print('Table detections: $detections');
     expect(detections.containsKey('quad_points'), isTrue);
     expect(detections['quad_points'].length, 4);
     expect(detections.containsKey('image'), isTrue);

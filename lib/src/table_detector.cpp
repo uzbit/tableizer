@@ -38,23 +38,31 @@ Vec3f CellularTableDetector::getMedianLab(const Mat &labImg, int cellR, int cell
     int y2 = min(y1 + cellSize, labImg.rows);
     int x2 = min(x1 + cellSize, labImg.cols);
 
-    Mat cell = labImg(Rect(x1, y1, x2 - x1, y2 - y1)).clone();
-    Mat cellReshaped = cell.reshape(1, cell.total());
+    Mat cell = labImg(Rect(x1, y1, x2 - x1, y2 - y1)).clone();           // CV_32FC3
+    Mat cellReshaped = cell.reshape(3, static_cast<int>(cell.total()));  // CV_32FC3 [N x 1 x 3]
+    CV_Assert(cellReshaped.type() == CV_32FC3);
 
-    vector<float> L, a, b;
+    vector<float> L;
+    L.reserve(cellReshaped.rows);
+    vector<float> A;
+    A.reserve(cellReshaped.rows);
+    vector<float> B;
+    B.reserve(cellReshaped.rows);
+
     for (int i = 0; i < cellReshaped.rows; ++i) {
-        L.push_back(cellReshaped.at<Vec3f>(i)[0]);
-        a.push_back(cellReshaped.at<Vec3f>(i)[1]);
-        b.push_back(cellReshaped.at<Vec3f>(i)[2]);
+        const Vec3f v = cellReshaped.at<Vec3f>(i, 0);
+        L.push_back(v[0]);
+        A.push_back(v[1]);
+        B.push_back(v[2]);
     }
 
     sort(L.begin(), L.end());
-    sort(a.begin(), a.end());
-    sort(b.begin(), b.end());
+    sort(A.begin(), A.end());
+    sort(B.begin(), B.end());
 
     float medianL = L.empty() ? 0 : L[L.size() / 2];
-    float medianA = a.empty() ? 0 : a[a.size() / 2];
-    float medianB = b.empty() ? 0 : b[b.size() / 2];
+    float medianA = A.empty() ? 0 : A[A.size() / 2];
+    float medianB = B.empty() ? 0 : B[B.size() / 2];
 
     return Vec3f(medianL, medianA, medianB);
 }

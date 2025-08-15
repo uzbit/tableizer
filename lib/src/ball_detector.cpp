@@ -1,10 +1,10 @@
 #include "ball_detector.hpp"
 
-// #ifdef BUILD_SHARED_LIB
-// #include <onnxruntime/core/session/onnxruntime_cxx_api.h>
-// #else
+#ifdef BUILD_SHARED_LIB
+#include <onnxruntime/core/session/onnxruntime_cxx_api.h>
+#else
 #include <onnxruntime/onnxruntime_cxx_api.h>
-// #endif
+#endif
 
 #include <opencv2/dnn/dnn.hpp>
 #include <opencv2/imgproc/imgproc.hpp>
