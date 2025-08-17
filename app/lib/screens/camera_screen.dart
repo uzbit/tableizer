@@ -6,6 +6,7 @@ import 'dart:ui' as ui;
 import 'package:camerawesome/camerawesome_plugin.dart';
 import 'package:flutter/material.dart' hide BoxPainter;
 import 'package:image/image.dart' as img;
+import 'package:image/image.dart' as img;
 import '../services/ball_detection_service.dart';
 import '../services/table_detection_service.dart';
 
@@ -24,9 +25,10 @@ class CameraScreen extends StatefulWidget {
 class CameraScreenState extends State<CameraScreen> {
   final BallDetectionService _ballDetectionService = BallDetectionService();
   final TableDetectionService _tableDetectionService = TableDetectionService();
-  StreamSubscription<Map<String, dynamic>>? _tableDetectionsSubscription;
+  StreamSubscription<TableDetection>? _tableDetectionsSubscription;
   List<Detection> _ballDetections = [];
-  Map<String, dynamic> _tableDetections = {};
+  TableDetection? _tableDetection;
+  ui.Image? _debugUiImage; // Holds the decoded debug image
   double _fps = 0.0;
   int _frameCounter = 0;
   int _lastFrameTime = 0;
@@ -41,6 +43,7 @@ class CameraScreenState extends State<CameraScreen> {
   void dispose() {
     _tableDetectionsSubscription?.cancel();
     _tableDetectionService.dispose();
+    _debugUiImage?.dispose();
     super.dispose();
   }
 
@@ -48,12 +51,42 @@ class CameraScreenState extends State<CameraScreen> {
     await _ballDetectionService.initialize();
     await _tableDetectionService.initialize();
     _tableDetectionsSubscription =
-        _tableDetectionService.detections.listen((detections) {
-      print('Quad points received: ${detections['quad_points']}');
-      setState(() {
-        _tableDetections = detections;
-      });
+        _tableDetectionService.detections.listen((detection) {
+      if (mounted) {
+        setState(() {
+          _tableDetection = detection;
+        });
+        // Asynchronously update the debug image
+        _updateDebugImage(detection);
+      }
     });
+  }
+
+  // New async method to decode raw RGBA bytes
+  Future<void> _updateDebugImage(TableDetection detection) async {
+    if (detection.debugImage == null) return;
+
+    final completer = Completer<ui.Image>();
+    ui.decodeImageFromPixels(
+      detection.debugImage!,
+      detection.imageWidth,
+      detection.imageHeight,
+      ui.PixelFormat.rgba8888,
+      (ui.Image img) {
+        completer.complete(img);
+      },
+    );
+
+    final newImage = await completer.future;
+    if (mounted) {
+      setState(() {
+        _debugUiImage?.dispose(); // Dispose the old image
+        _debugUiImage = newImage;
+      });
+    } else {
+      // If the widget is disposed while we were decoding, dispose the new image
+      newImage.dispose();
+    }
   }
 
   Future<void> _processCameraImage(AnalysisImage image) async {
@@ -75,48 +108,21 @@ class CameraScreenState extends State<CameraScreen> {
     }
 
     image.when(
-      bgra8888: (frame) {
-        // For debugging: convert the frame to a displayable image and show it.
-        final image = img.Image.fromBytes(
-          width: frame.width,
-          height: frame.height,
-          bytes: frame.planes.first.bytes.buffer,
-          order: img.ChannelOrder.rgba, // Based on byte log, the order is RGBA
-        );
-        showFrameDebug(context, image);
-
-        // Continue with the detection
-        _tableDetectionService.detectTableFromByteBuffer(
-          frame.planes.first.bytes,
-          frame.width,
-          frame.height,
-        );
+      bgra8888: (frame) {},
+      jpeg: (frame) {
+        final image = img.decodeJpg(frame.bytes);
+        if (image != null) {
+          _tableDetectionService.processImage(image);
+        }
       },
-      jpeg: (_) {},
       nv21: (_) {},
-      yuv420: (_) {},
-    );
-  }
-
-  void showFrameDebug(BuildContext context, img.Image rgba) {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        content: Image.memory(
-          Uint8List.fromList(img.encodePng(rgba)),
-          gaplessPlayback: true,
-        ),
-      ),
+      yuv420: (frame) {},
     );
   }
 
   @override
   Widget build(BuildContext context) {
-    final quadPoints = _tableDetections['quad_points'] as List<dynamic>?;
-    final points = quadPoints
-        ?.map((p) => Offset(p['x'].toDouble(), p['y'].toDouble()))
-        .toList() ??
-        [];
+    final points = _tableDetection?.quadPoints ?? [];
 
     return Scaffold(
       appBar: AppBar(title: const Text('Tableizer')),
@@ -130,17 +136,24 @@ class CameraScreenState extends State<CameraScreen> {
         ),
         onImageForAnalysis: _processCameraImage,
         imageAnalysisConfig: AnalysisConfig(
-          androidOptions: const AndroidAnalysisOptions.bgra8888(width: 1080),
+          androidOptions: const AndroidAnalysisOptions.jpeg(width: 1080),
           maxFramesPerSecond: 30,
         ),
         builder: (cameraState, preview) {
           return Stack(
             fit: StackFit.expand,
             children: [
-              if (_tableDetections.containsKey('image'))
-                Image.memory(
-                  base64Decode(_tableDetections['image']),
-                  fit: BoxFit.fill,
+              // Use RawImage to display the decoded ui.Image
+              if (_debugUiImage != null)
+                FittedBox(
+                  fit: BoxFit.cover,
+                  child: SizedBox(
+                    width: _debugUiImage!.width.toDouble(),
+                    height: _debugUiImage!.height.toDouble(),
+                    child: RawImage(
+                      image: _debugUiImage,
+                    ),
+                  ),
                 ),
               CustomPaint(
                 painter: BoxPainter(

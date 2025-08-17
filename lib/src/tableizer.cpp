@@ -273,83 +273,18 @@ void release_detector(void* detector_ptr) {
     }
 }
 
-const char* detect_objects_yuv(void* detector_ptr, uint8_t* y_plane, uint8_t* u_plane,
-                               uint8_t* v_plane, int width, int height, int y_stride, int u_stride,
-                               int v_stride) {
-    static std::string result_str;
-    if (!detector_ptr) {
-        result_str = "{\"error\": \"Invalid detector instance\"}";
-        return result_str.c_str();
-    }
-
-    BallDetector* detector = static_cast<BallDetector*>(detector_ptr);
-
+DetectionResult* detect_table_raw(const unsigned char* image_bytes, int width, int height,
+                                  int stride) {
     try {
-        // Create a single continuous cv::Mat for the I420 data.
-        cv::Mat yuv(height + height / 2, width, CV_8UC1);
-        uint8_t* yuv_data = yuv.data;
-
-        // Copy Y plane, handling stride.
-        for (int i = 0; i < height; ++i) {
-            memcpy(yuv_data + i * width, y_plane + i * y_stride, width);
+        cv::Mat image(height, width, CV_8UC4, (void*)image_bytes, stride);
+        if (image.empty()) {
+            return nullptr;
         }
 
-        // Copy U plane, handling stride.
-        uint8_t* u_dst = yuv_data + height * width;
-        for (int i = 0; i < height / 2; ++i) {
-            memcpy(u_dst + i * (width / 2), u_plane + i * u_stride, width / 2);
-        }
-
-        // Copy V plane, handling stride.
-        uint8_t* v_dst = u_dst + (height / 2) * (width / 2);
-        for (int i = 0; i < height / 2; ++i) {
-            memcpy(v_dst + i * (width / 2), v_plane + i * v_stride, width / 2);
-        }
-
-        // Convert the packed YUV image to BGR.
         cv::Mat bgr;
-        cv::cvtColor(yuv, bgr, cv::COLOR_YUV2BGR_I420);
-        const auto detections = detector->detect(bgr, CONF_THRESH, IOU_THRESH);
+        cv::cvtColor(image, bgr, cv::COLOR_RGBA2BGR);
 
-        result_str = format_detections_json(detections);
-        return result_str.c_str();
-
-    } catch (const std::exception& e) {
-        result_str = std::string("{\"error\": \"") + e.what() + "\"}";
-        return result_str.c_str();
-    }
-}
-
-const char* detect_table_yuv(uint8_t* y_plane, uint8_t* u_plane, uint8_t* v_plane, int width,                             int height, int y_stride, int u_stride, int v_stride) {
-    static std::string result_str;
-
-    try {
-        // Create a single continuous cv::Mat for the I420 data.
-        cv::Mat yuv(height + height / 2, width, CV_8UC1);
-        uint8_t* yuv_data = yuv.data;
-
-        // Copy Y plane, handling stride.
-        for (int i = 0; i < height; ++i) {
-            memcpy(yuv_data + i * width, y_plane + i * y_stride, width);
-        }
-
-        // Copy U plane, handling stride.
-        uint8_t* u_dst = yuv_data + height * width;
-        for (int i = 0; i < height / 2; ++i) {
-            memcpy(u_dst + i * (width / 2), u_plane + i * u_stride, width / 2);
-        }
-
-        // Copy V plane, handling stride.
-        uint8_t* v_dst = u_dst + (height / 2) * (width / 2);
-        for (int i = 0; i < height / 2; ++i) {
-            memcpy(v_dst + i * (width / 2), v_plane + i * v_stride, width / 2);
-        }
-
-        // Convert the packed YUV image to BGR.
-        cv::Mat bgr;
-        cv::cvtColor(yuv, bgr, cv::COLOR_YUV2BGR_I420);
-
-        // Detect table
+        // --- Detection Logic ---
         int cellSize = 20;
         double deltaEThreshold = 20.0;
         CellularTableDetector tableDetector(bgr.rows, cellSize, deltaEThreshold);
@@ -358,6 +293,14 @@ const char* detect_table_yuv(uint8_t* y_plane, uint8_t* u_plane, uint8_t* v_plan
         std::vector<cv::Point2f> quadPoints =
             tableDetector.quadFromInside(mask, tableDetection.cols, tableDetection.rows);
 
+        // --- Prepare Result ---
+        DetectionResult* result = new DetectionResult();
+        result->quad_points_count = quadPoints.size();
+        for (size_t i = 0; i < quadPoints.size(); ++i) {
+            result->quad_points[i] = {quadPoints[i].x, quadPoints[i].y};
+        }
+
+        // Draw for debug image
         if (quadPoints.size() == 4) {
             std::vector<cv::Point> quadDraw;
             quadDraw.reserve(quadPoints.size());
@@ -367,45 +310,48 @@ const char* detect_table_yuv(uint8_t* y_plane, uint8_t* u_plane, uint8_t* v_plan
             cv::polylines(tableDetection, quadDraw, true, cv::Scalar(0, 0, 255), 5);
         }
 
-        // Encode image to base64
-        std::vector<uchar> buf;
-        cv::imencode(".jpg", tableDetection, buf);
-        auto base64_png = reinterpret_cast<const unsigned char*>(buf.data());
-        std::string base64_image = base64_encode(base64_png, buf.size());
+        // Convert debug image to RGBA and copy to a new buffer
+        cv::Mat rgbaDetection;
+        cv::cvtColor(tableDetection, rgbaDetection, cv::COLOR_BGR2RGBA);
 
-        // Format results as a JSON string
-        std::string json = "{\"quad_points\": [";
-        for (size_t i = 0; i < quadPoints.size(); ++i) {
-            json += "{\"x\": " + std::to_string(quadPoints[i].x) +
-                    ", \"y\": " + std::to_string(quadPoints[i].y) + "}";
-            if (i < quadPoints.size() - 1) {
-                json += ", ";
-            }
-        }
-        json += "], \"image\": \"" + base64_image + "\"}";
+        size_t image_buffer_size = rgbaDetection.total() * rgbaDetection.elemSize();
+        result->image_bytes = new unsigned char[image_buffer_size];
+        memcpy(result->image_bytes, rgbaDetection.data, image_buffer_size);
 
-        result_str = json;
-        return result_str.c_str();
+        result->image_width = rgbaDetection.cols;
+        result->image_height = rgbaDetection.rows;
+
+        return result;
 
     } catch (const std::exception& e) {
-        result_str = std::string("{\"error\": \"") + e.what() + "\"}";
-        return result_str.c_str();
+        // In a real app, you'd want a better way to signal this error.
+        // For now, returning null indicates failure.
+        std::cerr << "Error in detect_table_raw: " << e.what() << std::endl;
+        return nullptr;
     }
 }
 
+void free_detection_result(DetectionResult* result) {
+    if (result) {
+        delete[] result->image_bytes;  // Free the image buffer
+        delete result;                 // Free the struct itself
+    }
+}
+/*
 const char* detect_table_rgba(const unsigned char* image_bytes, int width, int height,
-                              int channels) {
+                              int channels, int stride) {
     // cv::setNumThreads(0);
     // cv::setUseOptimized(false);
     static std::string result_str;
 
     try {
         // Create cv::Mat from raw bytes. We assume RGBA (4 channels) from Flutter.
-        cv::Mat image(height, width, CV_8UC4, (void*)image_bytes);
+        cv::Mat image(height, width, CV_8UC4, (void*)image_bytes, stride);
         if (image.empty()) {
             result_str = "{\"error\": \"Failed to create image from bytes\"}";
             return result_str.c_str();
         }
+
 
         // Convert to BGR for processing if needed by the model
         cv::Mat bgr;
@@ -454,6 +400,7 @@ const char* detect_table_rgba(const unsigned char* image_bytes, int width, int h
         return result_str.c_str();
     }
 }
+*/
 
 }  // extern C
 #endif

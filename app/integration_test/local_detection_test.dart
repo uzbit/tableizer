@@ -44,7 +44,7 @@ void main() {
     final detectionService = TableDetectionService();
     await detectionService.initialize();
 
-    final detections = await detectionService.detectTableFromByteBuffer(
+    final detections = await detectionService.detectTableFromRawRgba(
         bytes, rgbaImage.width, rgbaImage.height);
     print('Table detections: $detections');
     expect(detections.containsKey('quad_points'), isTrue);

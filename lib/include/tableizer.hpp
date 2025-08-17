@@ -32,22 +32,39 @@ int runTableizerForImage(Mat image, BallDetector& ballDetector);
 extern "C" {
 #endif
 
+// Represents a single point.
+struct FFI_Point {
+    float x;
+    float y;
+};
+
+// The struct that will be returned from the native code.
+// The caller is responsible for freeing this struct using `free_detection_result`.
+struct DetectionResult {
+    FFI_Point quad_points[4];
+    int quad_points_count;
+    unsigned char* image_bytes;
+    int image_width;
+    int image_height;
+};
+
 __attribute__((visibility("default"))) __attribute__((used)) void* initialize_detector(
     const char* model_path);
 
 __attribute__((visibility("default"))) __attribute__((used)) const char* detect_objects_rgba(
     void* detector_ptr, const unsigned char* image_bytes, int width, int height, int channels);
 
-__attribute__((visibility("default"))) __attribute__((used)) const char* detect_objects_yuv(
-    void* detector_ptr, uint8_t* y_plane, uint8_t* u_plane, uint8_t* v_plane, int width, int height,
-    int y_stride, int u_stride, int v_stride);
-
-__attribute__((visibility("default"))) __attribute__((used)) const char* detect_table_yuv(
-    uint8_t* y_plane, uint8_t* u_plane, uint8_t* v_plane, int width, int height,
-    int y_stride, int u_stride, int v_stride);
-
 __attribute__((visibility("default"))) __attribute__((used)) const char* detect_table_rgba(
-    const unsigned char* image_bytes, int width, int height, int channels);
+    const unsigned char* image_bytes, int width, int height, int channels, int stride);
+
+// High-performance, zero-copy alternative to detect_table_rgba.
+// Allocates a DetectionResult struct that must be freed by the caller.
+__attribute__((visibility("default"))) __attribute__((used)) DetectionResult* detect_table_raw(
+    const unsigned char* image_bytes, int width, int height, int stride);
+
+// Frees the memory allocated by detect_table_raw.
+__attribute__((visibility("default"))) __attribute__((used)) void free_detection_result(
+    DetectionResult* result);
 
 __attribute__((visibility("default"))) __attribute__((used)) void release_detector(
     void* detector_ptr);
