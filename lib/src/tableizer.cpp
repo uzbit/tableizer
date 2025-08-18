@@ -4,14 +4,28 @@
 #include <opencv2/opencv.hpp>
 #include <vector>
 
+// Include all project headers at the top
 #include "ball_detector.hpp"
 #include "table_detector.hpp"
+#include "tableizer.hpp"
 #include "utilities.hpp"
 
 #if !LOCAL_BUILD
 #include <onnxruntime/core/session/onnxruntime_cxx_api.h>
 #else
 #include <onnxruntime/onnxruntime_cxx_api.h>
+#endif
+
+// Conditional logging headers and macros
+#if !LOCAL_BUILD
+#include <android/log.h>
+#define LOG_TAG "tableizer_native"
+#define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
+#define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
+#else
+#include <cstdio>
+#define LOGI(...) do { printf("INFO: "); printf(__VA_ARGS__); printf("\n"); } while(0)
+#define LOGE(...) do { fprintf(stderr, "ERROR: "); fprintf(stderr, __VA_ARGS__); fprintf(stderr, "\n"); } while(0)
 #endif
 
 using namespace std;
@@ -24,46 +38,77 @@ int runTableizerForImage(Mat image, BallDetector& ballDetector) {
 #if LOCAL_BUILD
     imshow("Table", image);
     waitKey(0);
-#endif
-    // 2. Detect Table
+
+    // --- 1. Get ground truth quad points by calling the detector directly ---
+    cout << "--- 1: Table Detection (Direct) ---" << endl;
     int cellSize = 20;
     double deltaEThreshold = 20.0;
     CellularTableDetector tableDetector(image.rows, cellSize, deltaEThreshold);
-
-    cout << "--- 2: Table Detection ---" << endl;
-    cout << "Parameters:  cellSize=" << cellSize << ", deltaEThreshold=" << deltaEThreshold << endl;
-
     Mat mask, tableDetection;
-
     tableDetector.detect(image, mask, tableDetection);
-    cout << "Resized image for detection dimensions: " << tableDetection.cols << "x"
-         << tableDetection.rows << endl;
-
-    std::vector<cv::Point2f> quadPoints =
+    std::vector<cv::Point2f> directQuadPoints =
         tableDetector.quadFromInside(mask, tableDetection.cols, tableDetection.rows);
 
-#if LOCAL_BUILD
-    std::vector<cv::Point> quadDraw;
-    quadDraw.reserve(quadPoints.size());
-
-    for (const auto& pt : quadPoints) quadDraw.emplace_back(cvRound(pt.x), cvRound(pt.y));
-
-    cv::polylines(tableDetection, quadDraw, true, cv::Scalar(0, 0, 255), 5);
-    imshow("Quad Found", tableDetection);
-    waitKey(0);
-#endif
-    if (quadPoints.size() != 4) {
-        cerr << "Error: Could not detect table quad." << endl;
+    if (directQuadPoints.size() != 4) {
+        cerr << "Error: Direct detection failed to find 4 points." << endl;
         return -1;
     }
 
-#if LOCAL_BUILD
-    cout << "Detected table quad corners (in resized image coordinates):" << endl;
-    for (const auto& p : quadPoints) {
-        cout << "  - (" << p.x << ", " << p.y << ")" << endl;
+    // --- 2. Get quad points via FFI call ---
+    cout << "--- 2: Table Detection (FFI) ---" << endl;
+    cv::Mat bgra_image;
+    cv::cvtColor(image, bgra_image, cv::COLOR_BGR2BGRA);
+    DetectionResult* ffiResult = detect_table_bgra(
+        bgra_image.data, bgra_image.cols, bgra_image.rows, bgra_image.step, nullptr);
+
+    if (ffiResult == nullptr || ffiResult->quad_points_count != 4) {
+        cerr << "Error: FFI detection failed to find 4 points." << endl;
+        if (ffiResult) free_bgra_detection_result(ffiResult);
+        return -1;
+    }
+    std::vector<cv::Point2f> ffiQuadPoints;
+    for (int i = 0; i < ffiResult->quad_points_count; ++i) {
+        ffiQuadPoints.emplace_back(ffiResult->quad_points[i].x, ffiResult->quad_points[i].y);
+    }
+    free_bgra_detection_result(ffiResult);
+
+    // --- 3. Compare the results ---
+    cout << "--- 3: Comparing Direct vs. FFI Results ---" << endl;
+    bool match = true;
+    double epsilon = 1e-5;
+    if (directQuadPoints.size() != ffiQuadPoints.size()) {
+        match = false;
+    } else {
+        for (size_t i = 0; i < directQuadPoints.size(); ++i) {
+            if (std::abs(directQuadPoints[i].x - ffiQuadPoints[i].x) > epsilon ||
+                std::abs(directQuadPoints[i].y - ffiQuadPoints[i].y) > epsilon) {
+                match = false;
+                break;
+            }
+        }
+    }
+
+    if (match) {
+        cout << "SUCCESS: Quad points from direct call and FFI call match." << endl;
+    } else {
+        cerr << "FAILURE: Quad points do not match!" << endl;
+        cerr << "  Direct Points:" << endl;
+        for (const auto& p : directQuadPoints) cerr << "    (" << p.x << ", " << p.y << ")" << endl;
+        cerr << "  FFI Points:" << endl;
+        for (const auto& p : ffiQuadPoints) cerr << "    (" << p.x << ", " << p.y << ")" << endl;
+        return -1; // Exit on failure
     }
     cout << endl;
-#endif
+
+    // --- Continue with the rest of the process using the validated points ---
+    std::vector<cv::Point2f> quadPoints = ffiQuadPoints; // Use FFI points for subsequent steps
+
+    std::vector<cv::Point> quadDraw;
+    quadDraw.reserve(quadPoints.size());
+    for (const auto& pt : quadPoints) quadDraw.emplace_back(cvRound(pt.x), cvRound(pt.y));
+    cv::polylines(tableDetection, quadDraw, true, cv::Scalar(0, 0, 255), 5);
+    imshow("Quad Found (from FFI)", tableDetection);
+    waitKey(0);
 
     // 3. Warp Table
     bool rotate = true;
@@ -71,34 +116,27 @@ int runTableizerForImage(Mat image, BallDetector& ballDetector) {
 
     // --- Ball detection & drawing --------------------------
     // 4. Detect balls **on the original image**
-    cout << "--- Step 3: Ball Detection ---" << endl;
+    cout << "--- Step 4: Ball Detection ---" << endl;
     const vector<Detection> detections = ballDetector.detect(image, CONF_THRESH, IOU_THRESH);
     cout << "Found " << detections.size() << " balls after non-maximum suppression.\n\n";
 
     // 5. Build transform: original-pixel  ➜  table_detection  ➜  canonical table
     // --------------------------------------------------------
-    // table_detector resized the image to `resizeHeight` while preserving aspect.
-    // Derive the scale used for that resize so we can link both spaces together.
     const double scaleY =
         static_cast<double>(tableDetection.rows) / static_cast<double>(image.rows);
     const double scaleX =
         static_cast<double>(tableDetection.cols) / static_cast<double>(image.cols);
 
-    // homogeneous scale matrix (3×3)
     cv::Mat Hscale = (cv::Mat_<double>(3, 3) << scaleX, 0, 0, 0, scaleY, 0, 0, 0, 1);
-
-    // Make sure both matrices share the same depth
     cv::Mat Hwarp;
-    warpResult.transform.convertTo(Hwarp, CV_64F);  // canonical ← resized
-    cv::Mat Htotal = Hscale * Hwarp;                // canonical ← original
+    warpResult.transform.convertTo(Hwarp, CV_64F);
+    cv::Mat Htotal = Hscale * Hwarp;
 
     // 6. Draw predictions on the canonical table and shot-studio template
     // --------------------------------------------------------
-#if LOCAL_BUILD
     string studioPath =
         "/Users/uzbit/Documents/projects/tableizer/data/shotstudio_table_felt_only.png";
     cv::Mat shotStudio = cv::imread(studioPath);
-#endif
     cv::Mat warpedOut = warpResult.warped.clone();  // copy for drawing
     const cv::Scalar textColor(255, 255, 255);      // white id
 
@@ -108,9 +146,7 @@ int runTableizerForImage(Mat image, BallDetector& ballDetector) {
         // centres in *original* pixel space
         vector<cv::Point2f> ballCentresOrig;
         for (const auto& d : detections) {
-            cv::Point2f p = d.center;  //(d.box.x + d.box.width / 2, d.box.y + d.box.height / 2);
-            ballCentresOrig.emplace_back(p);
-            cout << "Ball at @ " << p << "\n";
+            ballCentresOrig.emplace_back(d.center);
         }
 
         // map straight to canonical table space
@@ -118,37 +154,23 @@ int runTableizerForImage(Mat image, BallDetector& ballDetector) {
         cv::perspectiveTransform(ballCentresOrig, ballCentresCanonical, Htotal);
 
         // --- Compute pixel radius based on table size ---
-        int tableSizeInches = 100;  // change to 78, 88 or 100 for larger tables
+        int tableSizeInches = 100;
         int longEdgePx = std::max(warpedOut.cols, warpedOut.rows);
-        int ballDiameterPx = std::max(int(round(longEdgePx * (2.25 / tableSizeInches))), 8);
-        int radius = ballDiameterPx / 2;
-
-        cout << "--- Step 4: Final Ball Locations ---\\n";
-        float textSize = 0.7 * (radius / 8.0);  // scale font with ball size
+        int radius = std::max((int)round(longEdgePx * (2.25 / tableSizeInches) / 2.0), 4);
+        float textSize = 0.7 * (radius / 8.0);
 
         for (size_t i = 0; i < ballCentresCanonical.size(); ++i) {
             const auto& p = ballCentresCanonical[i];
             cout << "  • class " << detections[i].classId << " conf " << detections[i].confidence
                  << " @ (" << p.x << ", " << p.y << ")\n";
 
-#if LOCAL_BUILD
             cv::Scalar ballColor;
             switch (detections[i].classId) {
-                case 3:
-                    ballColor = cv::Scalar(0, 0, 255);
-                    break;  // stripe → red
-                case 2:
-                    ballColor = cv::Scalar(255, 222, 33);
-                    break;  // solid → yellow
-                case 1:
-                    ballColor = cv::Scalar(255, 255, 255);
-                    break;  // cue → white
-                case 0:
-                    ballColor = cv::Scalar(0, 0, 0);
-                    break;  // black
-                default:
-                    ballColor = cv::Scalar(128, 128, 128);
-                    break;  // fallback
+                case 3: ballColor = cv::Scalar(0, 0, 255); break;
+                case 2: ballColor = cv::Scalar(255, 222, 33); break;
+                case 1: ballColor = cv::Scalar(255, 255, 255); break;
+                case 0: ballColor = cv::Scalar(0, 0, 0); break;
+                default: ballColor = cv::Scalar(128, 128, 128); break;
             }
 
             // Draw on warpedOut
@@ -164,12 +186,10 @@ int runTableizerForImage(Mat image, BallDetector& ballDetector) {
                             p + cv::Point2f(radius + 2, 0), cv::FONT_HERSHEY_SIMPLEX, textSize,
                             textColor, 2);
             }
-#endif
         }
         cout << endl;
     }
 
-#if LOCAL_BUILD
     // 7. Display results
     cv::imshow("Warped Table + Balls", warpedOut);
     if (!shotStudio.empty()) {
@@ -181,21 +201,8 @@ int runTableizerForImage(Mat image, BallDetector& ballDetector) {
     return 0;
 }
 
-#if BUILD_SHARED_LIB
-// #include <android/log.h>
-
-#include "ball_detector.hpp"
-#include "tableizer.hpp"
-
-// #define LOG_TAG "tableizer"  // anything that helps you filter Logcat
-// #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
-// #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
-
-// The FFI functions will interact with the BallDetector class.
-// We return a void* to hide the implementation details from the C interface.
 
 string format_detections_json(const vector<Detection>& detections) {
-    // Format results as a JSON string
     std::string json = "{\"detections\": [";
     for (size_t i = 0; i < detections.size(); ++i) {
         const auto& d = detections[i];
@@ -221,143 +228,103 @@ extern "C" {
 
 void* initialize_detector(const char* model_path) {
     try {
-        BallDetector* detector = new BallDetector(model_path);
-        return static_cast<void*>(detector);
+        return static_cast<void*>(new BallDetector(model_path));
     } catch (const std::exception& e) {
-        std::cerr << "Error initializing detector: " << e.what() << std::endl;
+        LOGE("Error initializing detector: %s", e.what());
         return nullptr;
     }
 }
 
 const char* detect_objects_rgba(void* detector_ptr, const unsigned char* image_bytes, int width,
                                 int height, int channels) {
-    // cv::setNumThreads(0);
-    // cv::setUseOptimized(false);
     static std::string result_str;
     if (!detector_ptr) {
         result_str = "{\"error\": \"Invalid detector instance\"}";
         return result_str.c_str();
     }
-
-    BallDetector* detector = static_cast<BallDetector*>(detector_ptr);
-
     try {
-        // Create cv::Mat from raw bytes. We assume RGBA (4 channels) from Flutter.
         cv::Mat image(height, width, CV_8UC4, (void*)image_bytes);
         if (image.empty()) {
             result_str = "{\"error\": \"Failed to create image from bytes\"}";
             return result_str.c_str();
         }
-
-        // Convert to BGR for processing if needed by the model
         cv::Mat image_bgr;
         cv::cvtColor(image, image_bgr, cv::COLOR_RGBA2BGR);
-
-        const auto detections = detector->detect(image_bgr, CONF_THRESH, IOU_THRESH);
-
+        const auto detections = static_cast<BallDetector*>(detector_ptr)->detect(image_bgr, CONF_THRESH, IOU_THRESH);
         result_str = format_detections_json(detections);
-        // LOGI(result_str);
         return result_str.c_str();
-
     } catch (const std::exception& e) {
         result_str = std::string("{\"error\": \"") + e.what() + "\"}";
-        // LOGE(result_str);
         return result_str.c_str();
     }
 }
 
 void release_detector(void* detector_ptr) {
     if (detector_ptr) {
-        BallDetector* detector = static_cast<BallDetector*>(detector_ptr);
-        delete detector;
+        delete static_cast<BallDetector*>(detector_ptr);
     }
 }
 
-DetectionResult* detect_table_raw(const unsigned char* image_bytes, int width, int height,
-                                  int stride) {
+DetectionResult* detect_table_bgra(const unsigned char* image_bytes, int width, int height,
+                                   int stride, const char* debug_image_path) {
     try {
-        cv::Mat image(height, width, CV_8UC4, (void*)image_bytes, stride);
-        if (image.empty()) {
+        cv::Mat bgra_image(height, width, CV_8UC4, (void*)image_bytes, stride);
+        if (bgra_image.empty()) {
+            LOGE("Failed to create image from bytes.");
             return nullptr;
         }
 
-        cv::Mat bgr;
-        cv::cvtColor(image, bgr, cv::COLOR_RGBA2BGR);
+        if (debug_image_path != nullptr && strlen(debug_image_path) > 0) {
+            LOGI("Attempting to save debug image to: %s", debug_image_path);
+            cv::Mat bgr_image;
+            cv::cvtColor(bgra_image, bgr_image, cv::COLOR_BGRA2BGR);
+            if (cv::imwrite(debug_image_path, bgr_image)) {
+                LOGI("Successfully saved debug image.");
+            } else {
+                LOGE("Failed to save debug image.");
+            }
+        }
 
-        // --- Detection Logic ---
         int cellSize = 20;
         double deltaEThreshold = 20.0;
-        CellularTableDetector tableDetector(bgr.rows, cellSize, deltaEThreshold);
+        CellularTableDetector tableDetector(bgra_image.rows, cellSize, deltaEThreshold);
         Mat mask, tableDetection;
-        tableDetector.detect(bgr, mask, tableDetection);
+        tableDetector.detect(bgra_image, mask, tableDetection);
         std::vector<cv::Point2f> quadPoints =
             tableDetector.quadFromInside(mask, tableDetection.cols, tableDetection.rows);
 
-        // --- Prepare Result ---
         DetectionResult* result = new DetectionResult();
         result->quad_points_count = quadPoints.size();
         for (size_t i = 0; i < quadPoints.size(); ++i) {
             result->quad_points[i] = {quadPoints[i].x, quadPoints[i].y};
         }
-
-        // Draw for debug image
-        if (quadPoints.size() == 4) {
-            std::vector<cv::Point> quadDraw;
-            quadDraw.reserve(quadPoints.size());
-            for (const auto& pt : quadPoints) {
-                quadDraw.emplace_back(cvRound(pt.x), cvRound(pt.y));
-            }
-            cv::polylines(tableDetection, quadDraw, true, cv::Scalar(0, 0, 255), 5);
-        }
-
-        // Convert debug image to RGBA and copy to a new buffer
-        cv::Mat rgbaDetection;
-        cv::cvtColor(tableDetection, rgbaDetection, cv::COLOR_BGR2RGBA);
-
-        size_t image_buffer_size = rgbaDetection.total() * rgbaDetection.elemSize();
-        result->image_bytes = new unsigned char[image_buffer_size];
-        memcpy(result->image_bytes, rgbaDetection.data, image_buffer_size);
-
-        result->image_width = rgbaDetection.cols;
-        result->image_height = rgbaDetection.rows;
-
+        LOGI("Detected %d quad points.", result->quad_points_count);
         return result;
 
     } catch (const std::exception& e) {
-        // In a real app, you'd want a better way to signal this error.
-        // For now, returning null indicates failure.
-        std::cerr << "Error in detect_table_raw: " << e.what() << std::endl;
+        LOGE("Error in detect_table_bgra: %s", e.what());
         return nullptr;
     }
 }
 
-void free_detection_result(DetectionResult* result) {
+void free_bgra_detection_result(DetectionResult* result) {
     if (result) {
-        delete[] result->image_bytes;  // Free the image buffer
-        delete result;                 // Free the struct itself
+        delete result;
     }
 }
-/*
-const char* detect_table_rgba(const unsigned char* image_bytes, int width, int height,
-                              int channels, int stride) {
-    // cv::setNumThreads(0);
-    // cv::setUseOptimized(false);
-    static std::string result_str;
 
+const char* detect_table_rgba(const unsigned char* image_bytes, int width, int height, int channels,
+                              int stride) {
+    static std::string result_str;
     try {
-        // Create cv::Mat from raw bytes. We assume RGBA (4 channels) from Flutter.
         cv::Mat image(height, width, CV_8UC4, (void*)image_bytes, stride);
         if (image.empty()) {
             result_str = "{\"error\": \"Failed to create image from bytes\"}";
             return result_str.c_str();
         }
-
-
-        // Convert to BGR for processing if needed by the model
         cv::Mat bgr;
         cv::cvtColor(image, bgr, cv::COLOR_BGRA2BGR);
 
-        // Detect table
         int cellSize = 20;
         double deltaEThreshold = 20.0;
         CellularTableDetector tableDetector(bgr.rows, cellSize, deltaEThreshold);
@@ -366,22 +333,10 @@ const char* detect_table_rgba(const unsigned char* image_bytes, int width, int h
         std::vector<cv::Point2f> quadPoints =
             tableDetector.quadFromInside(mask, tableDetection.cols, tableDetection.rows);
 
-        if (quadPoints.size() == 4) {
-            std::vector<cv::Point> quadDraw;
-            quadDraw.reserve(quadPoints.size());
-            for (const auto& pt : quadPoints) {
-                quadDraw.emplace_back(cvRound(pt.x), cvRound(pt.y));
-            }
-            cv::polylines(tableDetection, quadDraw, true, cv::Scalar(0, 0, 255), 5);
-        }
-
-        // Encode image to base64
         std::vector<uchar> buf;
         cv::imencode(".jpg", tableDetection, buf);
-        auto base64_png = reinterpret_cast<const unsigned char*>(buf.data());
-        std::string base64_image = base64_encode(base64_png, buf.size());
+        std::string base64_image = base64_encode(buf.data(), buf.size());
 
-        // Format results as a JSON string
         std::string json = "{\"quad_points\": [";
         for (size_t i = 0; i < quadPoints.size(); ++i) {
             json += "{\"x\": " + std::to_string(quadPoints[i].x) +
@@ -391,7 +346,6 @@ const char* detect_table_rgba(const unsigned char* image_bytes, int width, int h
             }
         }
         json += "], \"image\": \"" + base64_image + "\"}";
-
         result_str = json;
         return result_str.c_str();
 
@@ -400,7 +354,5 @@ const char* detect_table_rgba(const unsigned char* image_bytes, int width, int h
         return result_str.c_str();
     }
 }
-*/
 
 }  // extern C
-#endif

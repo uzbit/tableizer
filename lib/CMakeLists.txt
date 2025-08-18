@@ -37,7 +37,7 @@ if(BUILD_SHARED_LIB)
 
     if(ANDROID)
         message(STATUS "Configuring for Android")
-        find_package(OpenCV REQUIRED COMPONENTS core imgproc dnn)
+        find_package(OpenCV REQUIRED COMPONENTS core imgproc dnn imgcodecs)
         if(NOT DEFINED ONNXRUNTIME_INCLUDE_DIR OR NOT DEFINED ONNXRUNTIME_LIBRARY_PATH)
             message(FATAL_ERROR "For Android builds, you must define ONNXRUNTIME_INCLUDE_DIR and ONNXRUNTIME_LIBRARY_PATH")
         endif()
@@ -59,7 +59,7 @@ if(BUILD_SHARED_LIB)
 
     add_library(tableizer_lib SHARED ${LIB_SOURCES})
     set_source_files_properties(src/table_detector.cpp PROPERTIES COMPILE_FLAGS "-O0")
-    add_compile_options(-O3 -fPIC -march=armv8-a -DOPENCV_DISABLE_TBB=ON -DWITH_PTHREADS_PF=OFF)
+    add_compile_options(-O3 -fPIC -march=armv8-a -DOPENCV_DISABLE_TBB=ON -DWITH_PTHREADS_PF=OFF -DOPENCV_DISABLE_OPENMP_SUPPORT=ON)
     # target_compile_options(tableizer_lib PRIVATE
     #     $<$<CONFIG:Debug>:-g>
     #     $<$<CONFIG:Release>:-g -DNDEBUG>
@@ -75,6 +75,10 @@ if(BUILD_SHARED_LIB)
     target_link_libraries(tableizer_lib
         ${OpenCV_LIBS}
         ${ONNXRUNTIME_LIBRARY_PATH}
+        if(ANDROID)
+        log     
+        endif()
+        
     )
 
 else()

@@ -25,13 +25,14 @@ class CameraScreen extends StatefulWidget {
 class CameraScreenState extends State<CameraScreen> {
   final BallDetectionService _ballDetectionService = BallDetectionService();
   final TableDetectionService _tableDetectionService = TableDetectionService();
-  StreamSubscription<TableDetection>? _tableDetectionsSubscription;
+  StreamSubscription<List<Offset>>? _tableDetectionsSubscription;
+  StreamSubscription<Uint8List>? _debugImageSubscription;
   List<Detection> _ballDetections = [];
-  TableDetection? _tableDetection;
-  ui.Image? _debugUiImage; // Holds the decoded debug image
+  List<Offset> _quadPoints = [];
   double _fps = 0.0;
   int _frameCounter = 0;
-  int _lastFrameTime = 0;
+  DateTime _lastFrameTime = DateTime.now();
+  bool _isDialogShowing = false;
 
   @override
   void initState() {
@@ -42,88 +43,60 @@ class CameraScreenState extends State<CameraScreen> {
   @override
   void dispose() {
     _tableDetectionsSubscription?.cancel();
+    _debugImageSubscription?.cancel();
     _tableDetectionService.dispose();
-    _debugUiImage?.dispose();
     super.dispose();
   }
 
   Future<void> _initializeServices() async {
     await _ballDetectionService.initialize();
     await _tableDetectionService.initialize();
+    _lastFrameTime = DateTime.now();
+
     _tableDetectionsSubscription =
-        _tableDetectionService.detections.listen((detection) {
-      if (mounted) {
-        setState(() {
-          _tableDetection = detection;
-        });
-        // Asynchronously update the debug image
-        _updateDebugImage(detection);
-      }
-    });
-  }
+        _tableDetectionService.detections.listen((points) {
+      if (!mounted) return;
 
-  // New async method to decode raw RGBA bytes
-  Future<void> _updateDebugImage(TableDetection detection) async {
-    if (detection.debugImage == null) return;
-
-    final completer = Completer<ui.Image>();
-    ui.decodeImageFromPixels(
-      detection.debugImage!,
-      detection.imageWidth,
-      detection.imageHeight,
-      ui.PixelFormat.rgba8888,
-      (ui.Image img) {
-        completer.complete(img);
-      },
-    );
-
-    final newImage = await completer.future;
-    if (mounted) {
-      setState(() {
-        _debugUiImage?.dispose(); // Dispose the old image
-        _debugUiImage = newImage;
-      });
-    } else {
-      // If the widget is disposed while we were decoding, dispose the new image
-      newImage.dispose();
-    }
-  }
-
-  Future<void> _processCameraImage(AnalysisImage image) async {
-    final currentTime = DateTime.now().millisecondsSinceEpoch;
-    if (_lastFrameTime != 0) {
-      final int aSecondAgo = currentTime - 1000;
       _frameCounter++;
-      if (_lastFrameTime < aSecondAgo) {
-        if (mounted) {
-          setState(() {
-            _fps = _frameCounter / ((currentTime - _lastFrameTime) / 1000.0);
-          });
-        }
-        _frameCounter = 0;
-        _lastFrameTime = currentTime;
-      }
-    } else {
-      _lastFrameTime = currentTime;
-    }
+      final now = DateTime.now();
+      final difference = now.difference(_lastFrameTime);
+      double newFps = _fps;
 
-    image.when(
-      bgra8888: (frame) {},
-      jpeg: (frame) {
-        final image = img.decodeJpg(frame.bytes);
-        if (image != null) {
-          _tableDetectionService.processImage(image);
-        }
-      },
-      nv21: (_) {},
-      yuv420: (frame) {},
-    );
+      if (difference.inSeconds >= 1) {
+        newFps = _frameCounter / difference.inSeconds;
+        _frameCounter = 0;
+        _lastFrameTime = now;
+      }
+
+      setState(() {
+        _quadPoints = points;
+        _fps = newFps;
+      });
+    });
+
+    _debugImageSubscription =
+        _tableDetectionService.debugImages.listen((imageBytes) {
+      if (!mounted || _isDialogShowing) return;
+      _isDialogShowing = true;
+      showDialog(
+        context: context,
+        builder: (context) => AlertDialog(
+          content: Image.memory(imageBytes),
+          actions: <Widget>[
+            TextButton(
+              child: const Text('Close'),
+              onPressed: () {
+                Navigator.of(context).pop();
+              },
+            ),
+          ],
+        ),
+      ).then((_) => _isDialogShowing = false);
+    });
   }
 
   @override
   Widget build(BuildContext context) {
-    final points = _tableDetection?.quadPoints ?? [];
-
     return Scaffold(
       appBar: AppBar(title: const Text('Tableizer')),
       body: CameraAwesomeBuilder.custom(
@@ -134,27 +107,15 @@ class CameraScreenState extends State<CameraScreen> {
           flashMode: FlashMode.none,
           aspectRatio: CameraAspectRatios.ratio_16_9,
         ),
-        onImageForAnalysis: _processCameraImage,
+        onImageForAnalysis: _tableDetectionService.processImage,
         imageAnalysisConfig: AnalysisConfig(
-          androidOptions: const AndroidAnalysisOptions.jpeg(width: 1080),
+          androidOptions: const AndroidAnalysisOptions.bgra8888(width: 1080),
           maxFramesPerSecond: 30,
         ),
         builder: (cameraState, preview) {
           return Stack(
             fit: StackFit.expand,
             children: [
-              // Use RawImage to display the decoded ui.Image
-              if (_debugUiImage != null)
-                FittedBox(
-                  fit: BoxFit.cover,
-                  child: SizedBox(
-                    width: _debugUiImage!.width.toDouble(),
-                    height: _debugUiImage!.height.toDouble(),
-                    child: RawImage(
-                      image: _debugUiImage,
-                    ),
-                  ),
-                ),
               CustomPaint(
                 painter: BoxPainter(
                   sensorSize: ui.Size(preview.rect.width, preview.rect.height),
@@ -164,7 +125,7 @@ class CameraScreenState extends State<CameraScreen> {
               CustomPaint(
                 painter: TablePainter(
                   sensorSize: ui.Size(preview.rect.width, preview.rect.height),
-                  quadPoints: points,
+                  quadPoints: _quadPoints,
                 ),
               ),
               Align(
@@ -182,7 +143,7 @@ class CameraScreenState extends State<CameraScreen> {
                 child: Container(
                   color: Colors.black.withOpacity(0.5),
                   child: Text(
-                    'Points: ${points.toString()}',
+                    'Points: ${_quadPoints.toString()}',
                     style: const TextStyle(color: Colors.white, fontSize: 12),
                   ),
                 ),
