@@ -11,46 +11,25 @@
 CellularTableDetector::CellularTableDetector(int resizeHeight, int cellSize, double deltaEThreshold)
     : resizeHeight(resizeHeight), cellSize(cellSize), deltaEThreshold(deltaEThreshold) {}
 
-Mat CellularTableDetector::prepareImage(const Mat &imgBgr) {
-    if (imgBgr.empty()) {
-        std::cerr << "Error: input image is empty!" << std::endl;
-        return imgBgr;
-    }
-    Mat small;
-    float scale = (float)resizeHeight / imgBgr.rows;
-    resize(imgBgr, small, Size(0, 0), scale, scale, INTER_AREA);
+Vec3f CellularTableDetector::getMedianLab(const Mat &bgrCell) {
+    Mat labCell;
+    cvtColor(bgrCell, labCell, COLOR_BGR2Lab);
+    CV_Assert(labCell.type() == CV_8UC3);
 
-    Mat lab;
-    cvtColor(small, lab, COLOR_BGR2Lab);
-
-    Mat lab_float;
-    lab.convertTo(lab_float, CV_32F);
-
-    vector<Mat> channels(3);
-    split(lab_float, channels);
-    channels[0] = channels[0] * 100.0 / 255.0;  // L channel
-    channels[1] = channels[1] - 128.0;          // a channel
-    channels[2] = channels[2] - 128.0;          // b channel
-    merge(channels, lab_float);
-
-    return lab_float;
-}
-
-Vec3f CellularTableDetector::getMedianLab(const Mat &labImg, const Rect& cellRect) {
-    Mat cell = labImg(cellRect).clone();
-    Mat cellReshaped = cell.reshape(3, static_cast<int>(cell.total()));
-    CV_Assert(cellReshaped.type() == CV_32FC3);
-
+    Mat cellReshaped(static_cast<int>(labCell.total()), 1, CV_32FC3);
+    
     vector<float> L, A, B;
-    L.reserve(cellReshaped.rows);
-    A.reserve(cellReshaped.rows);
-    B.reserve(cellReshaped.rows);
+    L.reserve(labCell.total());
+    A.reserve(labCell.total());
+    B.reserve(labCell.total());
 
-    for (int i = 0; i < cellReshaped.rows; ++i) {
-        const Vec3f v = cellReshaped.at<Vec3f>(i, 0);
-        L.push_back(v[0]);
-        A.push_back(v[1]);
-        B.push_back(v[2]);
+    for (int i = 0; i < labCell.rows; ++i) {
+        for (int j = 0; j < labCell.cols; ++j) {
+            const Vec3b& pixel = labCell.at<Vec3b>(i, j);
+            L.push_back(pixel[0] * 100.0f / 255.0f); // L channel
+            A.push_back(pixel[1] - 128.0f);          // a channel
+            B.push_back(pixel[2] - 128.0f);          // b channel
+        }
     }
 
     sort(L.begin(), L.end());
@@ -70,10 +49,8 @@ void CellularTableDetector::detect(const Mat &imgBgr, Mat &mask, Mat &debugDraw)
     resize(imgBgr, small_bgr, Size(0, 0), scale, scale, INTER_AREA);
     debugDraw = small_bgr.clone();
 
-    Mat labImg = prepareImage(imgBgr);
-
-    int rows = static_cast<int>(ceil((double)labImg.rows / cellSize));
-    int cols = static_cast<int>(ceil((double)labImg.cols / cellSize));
+    int rows = static_cast<int>(ceil((double)small_bgr.rows / cellSize));
+    int cols = static_cast<int>(ceil((double)small_bgr.cols / cellSize));
 
     Mat visited = Mat::zeros(rows, cols, CV_8U);
     Mat inside = Mat::zeros(rows, cols, CV_8U);
@@ -83,10 +60,10 @@ void CellularTableDetector::detect(const Mat &imgBgr, Mat &mask, Mat &debugDraw)
 
     int y1 = centreR * cellSize;
     int x1 = centreC * cellSize;
-    int y2 = min(y1 + cellSize, labImg.rows);
-    int x2 = min(x1 + cellSize, labImg.cols);
+    int y2 = min(y1 + cellSize, small_bgr.rows);
+    int x2 = min(x1 + cellSize, small_bgr.cols);
     Rect centerRect(x1, y1, x2 - x1, y2 - y1);
-    Vec3f refLab = getMedianLab(labImg, centerRect);
+    Vec3f refLab = getMedianLab(small_bgr(centerRect));
 
     vector<Point> queue;
     queue.push_back(Point(centreC, centreR));
@@ -100,10 +77,10 @@ void CellularTableDetector::detect(const Mat &imgBgr, Mat &mask, Mat &debugDraw)
 
         y1 = r * cellSize;
         x1 = c * cellSize;
-        y2 = min(y1 + cellSize, labImg.rows);
-        x2 = min(x1 + cellSize, labImg.cols);
+        y2 = min(y1 + cellSize, small_bgr.rows);
+        x2 = min(x1 + cellSize, small_bgr.cols);
         Rect cellRect(x1, y1, x2 - x1, y2 - y1);
-        Vec3f cellLab = getMedianLab(labImg, cellRect);
+        Vec3f cellLab = getMedianLab(small_bgr(cellRect));
         if (deltaE2000(refLab, cellLab) < deltaEThreshold) {
             inside.at<uchar>(r, c) = 1;
             for (int dr = -1; dr <= 1; ++dr) {

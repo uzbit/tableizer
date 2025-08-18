@@ -57,6 +57,7 @@ void main() {
         rgbaImage.width,
         rgbaImage.height,
         rgbaImage.width * 4,
+          nullptr
       );
 
       // --- Assertions ---
@@ -64,11 +65,23 @@ void main() {
       final result = resultPtr.ref;
       expect(result.quad_points_count, 4);
 
-      // Optional: Check if the points are reasonable
-      for (int i = 0; i < result.quad_points_count; i++) {
-        expect(result.quad_points[i].x, isPositive);
-        expect(result.quad_points[i].y, isPositive);
+      // EXPECTED QUAD (in resized detection image coordinates):
+      // x, y: 1045.0, 1719.0
+      // x, y: 2146.0, 1719.0
+      // x, y: 3224.0, 3176.0
+      // x, y: 44.0, 3176.0
+      final expectedPoints = [
+        img.Point(1045.0, 1719.0),
+        img.Point(2146.0, 1719.0),
+        img.Point(3224.0, 3176.0),
+        img.Point(44.0, 3176.0),
+      ];
+
+      for (int i = 0; i < 4; i++) {
+        expect(result.quad_points[i].x, closeTo(expectedPoints[i].x, 5));
+        expect(result.quad_points[i].y, closeTo(expectedPoints[i].y, 5));
       }
+
     } finally {
       // --- CRITICAL: Memory cleanup ---
       if (resultPtr != nullptr) {

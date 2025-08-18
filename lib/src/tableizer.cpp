@@ -16,18 +16,6 @@
 #include <onnxruntime/onnxruntime_cxx_api.h>
 #endif
 
-// Conditional logging headers and macros
-#if !LOCAL_BUILD
-#include <android/log.h>
-#define LOG_TAG "tableizer_native"
-#define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
-#define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
-#else
-#include <cstdio>
-#define LOGI(...) do { printf("INFO: "); printf(__VA_ARGS__); printf("\n"); } while(0)
-#define LOGE(...) do { fprintf(stderr, "ERROR: "); fprintf(stderr, __VA_ARGS__); fprintf(stderr, "\n"); } while(0)
-#endif
-
 using namespace std;
 using namespace cv;
 
@@ -58,8 +46,8 @@ int runTableizerForImage(Mat image, BallDetector& ballDetector) {
     cout << "--- 2: Table Detection (FFI) ---" << endl;
     cv::Mat bgra_image;
     cv::cvtColor(image, bgra_image, cv::COLOR_BGR2BGRA);
-    DetectionResult* ffiResult = detect_table_bgra(
-        bgra_image.data, bgra_image.cols, bgra_image.rows, bgra_image.step, nullptr);
+    DetectionResult* ffiResult = detect_table_bgra(bgra_image.data, bgra_image.cols,
+                                                   bgra_image.rows, bgra_image.step, nullptr);
 
     if (ffiResult == nullptr || ffiResult->quad_points_count != 4) {
         cerr << "Error: FFI detection failed to find 4 points." << endl;
@@ -73,13 +61,15 @@ int runTableizerForImage(Mat image, BallDetector& ballDetector) {
     free_bgra_detection_result(ffiResult);
 
     // --- 3. Compare the results ---
-    cout << "--- 3: Comparing Direct vs. FFI Results ---" << endl;
+    cout << "--- 3: Comparing Direct vs. FFI Results Table Quad ---" << endl;
     bool match = true;
     double epsilon = 1e-5;
     if (directQuadPoints.size() != ffiQuadPoints.size()) {
         match = false;
     } else {
         for (size_t i = 0; i < directQuadPoints.size(); ++i) {
+            printf("x, y: %f, %f\n", directQuadPoints[i].x, directQuadPoints[i].y);
+
             if (std::abs(directQuadPoints[i].x - ffiQuadPoints[i].x) > epsilon ||
                 std::abs(directQuadPoints[i].y - ffiQuadPoints[i].y) > epsilon) {
                 match = false;
@@ -96,12 +86,12 @@ int runTableizerForImage(Mat image, BallDetector& ballDetector) {
         for (const auto& p : directQuadPoints) cerr << "    (" << p.x << ", " << p.y << ")" << endl;
         cerr << "  FFI Points:" << endl;
         for (const auto& p : ffiQuadPoints) cerr << "    (" << p.x << ", " << p.y << ")" << endl;
-        return -1; // Exit on failure
+        return -1;  // Exit on failure
     }
     cout << endl;
 
     // --- Continue with the rest of the process using the validated points ---
-    std::vector<cv::Point2f> quadPoints = ffiQuadPoints; // Use FFI points for subsequent steps
+    std::vector<cv::Point2f> quadPoints = ffiQuadPoints;  // Use FFI points for subsequent steps
 
     std::vector<cv::Point> quadDraw;
     quadDraw.reserve(quadPoints.size());
@@ -166,11 +156,21 @@ int runTableizerForImage(Mat image, BallDetector& ballDetector) {
 
             cv::Scalar ballColor;
             switch (detections[i].classId) {
-                case 3: ballColor = cv::Scalar(0, 0, 255); break;
-                case 2: ballColor = cv::Scalar(255, 222, 33); break;
-                case 1: ballColor = cv::Scalar(255, 255, 255); break;
-                case 0: ballColor = cv::Scalar(0, 0, 0); break;
-                default: ballColor = cv::Scalar(128, 128, 128); break;
+                case 3:
+                    ballColor = cv::Scalar(0, 0, 255);
+                    break;
+                case 2:
+                    ballColor = cv::Scalar(255, 222, 33);
+                    break;
+                case 1:
+                    ballColor = cv::Scalar(255, 255, 255);
+                    break;
+                case 0:
+                    ballColor = cv::Scalar(0, 0, 0);
+                    break;
+                default:
+                    ballColor = cv::Scalar(128, 128, 128);
+                    break;
             }
 
             // Draw on warpedOut
@@ -200,7 +200,6 @@ int runTableizerForImage(Mat image, BallDetector& ballDetector) {
 
     return 0;
 }
-
 
 string format_detections_json(const vector<Detection>& detections) {
     std::string json = "{\"detections\": [";
@@ -250,7 +249,8 @@ const char* detect_objects_rgba(void* detector_ptr, const unsigned char* image_b
         }
         cv::Mat image_bgr;
         cv::cvtColor(image, image_bgr, cv::COLOR_RGBA2BGR);
-        const auto detections = static_cast<BallDetector*>(detector_ptr)->detect(image_bgr, CONF_THRESH, IOU_THRESH);
+        const auto detections =
+            static_cast<BallDetector*>(detector_ptr)->detect(image_bgr, CONF_THRESH, IOU_THRESH);
         result_str = format_detections_json(detections);
         return result_str.c_str();
     } catch (const std::exception& e) {
@@ -268,31 +268,49 @@ void release_detector(void* detector_ptr) {
 DetectionResult* detect_table_bgra(const unsigned char* image_bytes, int width, int height,
                                    int stride, const char* debug_image_path) {
     try {
+        LOGI("HERE1.");
         cv::Mat bgra_image(height, width, CV_8UC4, (void*)image_bytes, stride);
         if (bgra_image.empty()) {
             LOGE("Failed to create image from bytes.");
             return nullptr;
         }
 
+        LOGI("HERE2.");
         if (debug_image_path != nullptr && strlen(debug_image_path) > 0) {
             LOGI("Attempting to save debug image to: %s", debug_image_path);
-            cv::Mat bgr_image;
-            cv::cvtColor(bgra_image, bgr_image, cv::COLOR_BGRA2BGR);
-            if (cv::imwrite(debug_image_path, bgr_image)) {
+            cv::Mat bgr_image_for_saving;
+            cv::cvtColor(bgra_image, bgr_image_for_saving, cv::COLOR_BGRA2BGR);
+            if (cv::imwrite(debug_image_path, bgr_image_for_saving)) {
                 LOGI("Successfully saved debug image.");
             } else {
                 LOGE("Failed to save debug image.");
             }
         }
+        LOGI("HERE3.");
+
+        setenv("OPENCV_CPU_DISABLE", "FP16,NEON_DOTPROD,BF16,I8MM,SVE,SVE2", 1);
+        // 2) (Optional) disable OpenCV’s optimized code paths to confirm diagnosis
+        cv::setUseOptimized(false);
+
+        // 3) Avoid any scheduler weirdness while debugging
+        cv::setNumThreads(1);
+
+        // Convert to BGR for the detection logic
+        cv::Mat bgr_image;
+        cv::cvtColor(bgra_image, bgr_image, cv::COLOR_BGRA2BGR);
+        LOGI("HERE4.");
 
         int cellSize = 20;
         double deltaEThreshold = 20.0;
-        CellularTableDetector tableDetector(bgra_image.rows, cellSize, deltaEThreshold);
+        CellularTableDetector tableDetector(bgr_image.rows, cellSize, deltaEThreshold);
+        LOGI("HERE5.");
         Mat mask, tableDetection;
-        tableDetector.detect(bgra_image, mask, tableDetection);
+        tableDetector.detect(bgr_image, mask, tableDetection);
+        LOGI("HERE6.");
+
         std::vector<cv::Point2f> quadPoints =
             tableDetector.quadFromInside(mask, tableDetection.cols, tableDetection.rows);
-
+        LOGI("HERE7.");
         DetectionResult* result = new DetectionResult();
         result->quad_points_count = quadPoints.size();
         for (size_t i = 0; i < quadPoints.size(); ++i) {

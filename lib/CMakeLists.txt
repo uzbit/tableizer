@@ -75,10 +75,7 @@ if(BUILD_SHARED_LIB)
     target_link_libraries(tableizer_lib
         ${OpenCV_LIBS}
         ${ONNXRUNTIME_LIBRARY_PATH}
-        if(ANDROID)
-        log     
-        endif()
-        
+        $<$<PLATFORM_ID:Android>:log>
     )
 
 else()

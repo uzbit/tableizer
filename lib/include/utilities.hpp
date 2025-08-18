@@ -8,6 +8,28 @@
 #define DEBUG_POINT std::cout << "Reached " << __FILE__ << ":" << __LINE__ << std::endl;
 #define LOCAL_BUILD true
 
+// Conditional logging headers and macros
+#if !LOCAL_BUILD
+#include <android/log.h>
+#define LOG_TAG "tableizer_native"
+#define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
+#define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
+#else
+#include <cstdio>
+#define LOGI(...)            \
+    do {                     \
+        printf("INFO: ");    \
+        printf(__VA_ARGS__); \
+        printf("\n");        \
+    } while (0)
+#define LOGE(...)                     \
+    do {                              \
+        fprintf(stderr, "ERROR: ");   \
+        fprintf(stderr, __VA_ARGS__); \
+        fprintf(stderr, "\n");        \
+    } while (0)
+#endif
+
 using namespace std;
 using namespace cv;
 
