@@ -21,6 +21,9 @@ using namespace cv;
 
 #define CONF_THRESH 0.6
 #define IOU_THRESH 0.5
+#define CELL_SIZE 20
+#define DELTAE_THRESH 20.0
+#define RESIZE 800  // not used
 
 int runTableizerForImage(Mat image, BallDetector& ballDetector) {
 #if LOCAL_BUILD
@@ -29,9 +32,7 @@ int runTableizerForImage(Mat image, BallDetector& ballDetector) {
 
     // --- 1. Get ground truth quad points by calling the detector directly ---
     cout << "--- 1: Table Detection (Direct) ---" << endl;
-    int cellSize = 20;
-    double deltaEThreshold = 20.0;
-    CellularTableDetector tableDetector(image.rows, cellSize, deltaEThreshold);
+    CellularTableDetector tableDetector(image.rows, CELL_SIZE, DELTAE_THRESH);
     Mat mask, tableDetection;
     tableDetector.detect(image, mask, tableDetection, 0);
     std::vector<cv::Point2f> directQuadPoints =
@@ -47,7 +48,7 @@ int runTableizerForImage(Mat image, BallDetector& ballDetector) {
     cv::Mat bgra_image;
     cv::cvtColor(image, bgra_image, cv::COLOR_BGR2BGRA);
     DetectionResult* ffiResult = detect_table_bgra(bgra_image.data, bgra_image.cols,
-                                                   bgra_image.rows, bgra_image.step, nullptr);
+                                                   bgra_image.rows, bgra_image.step, 0, nullptr);
 
     if (ffiResult == nullptr || ffiResult->quad_points_count != 4) {
         cerr << "Error: FFI detection failed to find 4 points." << endl;
@@ -274,9 +275,9 @@ DetectionResult* detect_table_bgra(const unsigned char* image_bytes, int width, 
             return nullptr;
         }
 
-        int cellSize = 20;
-        double deltaEThreshold = 20.0;
-        CellularTableDetector tableDetector(bgra_image_unrotated.rows, cellSize, deltaEThreshold);
+        // CellularTableDetector tableDetector(bgra_image_unrotated.rows, CELL_SIZE, DELTAE_THRESH);
+
+        CellularTableDetector tableDetector(bgra_image_unrotated.rows, CELL_SIZE, DELTAE_THRESH);
         Mat mask, tableDetection;
         tableDetector.detect(bgra_image_unrotated, mask, tableDetection, rotation_degrees);
 
@@ -335,9 +336,7 @@ const char* detect_table_rgba(const unsigned char* image_bytes, int width, int h
         cv::Mat bgr;
         cv::cvtColor(image, bgr, cv::COLOR_BGRA2BGR);
 
-        int cellSize = 20;
-        double deltaEThreshold = 20.0;
-        CellularTableDetector tableDetector(bgr.rows, cellSize, deltaEThreshold);
+        CellularTableDetector tableDetector(bgr.rows, CELL_SIZE, DELTAE_THRESH);
         Mat mask, tableDetection;
         tableDetector.detect(bgr, mask, tableDetection, 0);
         std::vector<cv::Point2f> quadPoints =

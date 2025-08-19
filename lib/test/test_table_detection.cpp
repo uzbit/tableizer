@@ -23,8 +23,8 @@ int main() {
     cv::cvtColor(image, bgra_image, cv::COLOR_BGR2BGRA);
 
     // Call the detection function
-    DetectionResult* result = detect_table_bgra(
-        bgra_image.data, bgra_image.cols, bgra_image.rows, bgra_image.step, nullptr);
+    DetectionResult* result = detect_table_bgra(bgra_image.data, bgra_image.cols, bgra_image.rows,
+                                                bgra_image.step, 0, nullptr);
 
     if (result == nullptr) {
         std::cerr << "Error: detect_table_bgra returned null." << std::endl;
