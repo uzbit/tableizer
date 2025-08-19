@@ -11,37 +11,33 @@
 CellularTableDetector::CellularTableDetector(int resizeHeight, int cellSize, double deltaEThreshold)
     : resizeHeight(resizeHeight), cellSize(cellSize), deltaEThreshold(deltaEThreshold) {}
 
-Vec3f CellularTableDetector::getMedianLab(const Mat &bgraCell) {
-    Mat labCell;
-    // Convert the small BGRA cell to BGR then to LAB
-    Mat bgrCell;
-    cvtColor(bgraCell, bgrCell, COLOR_BGRA2BGR);
-    cvtColor(bgrCell, labCell, COLOR_BGR2Lab);
-    CV_Assert(labCell.type() == CV_8UC3);
+Vec3f CellularTableDetector::getMedianLab(const Mat &labImg, const Rect& cellRect) {
+    Mat cell = labImg(cellRect).clone(); // Create a deep copy to ensure continuity
+    Mat cellReshaped = cell.reshape(1, cell.total());
 
     vector<float> L, A, B;
-    L.reserve(labCell.total());
-    A.reserve(labCell.total());
-    B.reserve(labCell.total());
+    L.reserve(cellReshaped.rows);
+    A.reserve(cellReshaped.rows);
+    B.reserve(cellReshaped.rows);
 
-    for (int i = 0; i < labCell.rows; ++i) {
-        for (int j = 0; j < labCell.cols; ++j) {
-            const Vec3b& pixel = labCell.at<Vec3b>(i, j);
-            L.push_back(pixel[0] * 100.0f / 255.0f); // L channel
-            A.push_back(pixel[1] - 128.0f);          // a channel
-            B.push_back(pixel[2] - 128.0f);          // b channel
-        }
+    for (int i = 0; i < cellReshaped.rows; ++i) {
+        const Vec3f& v = cellReshaped.at<Vec3f>(i, 0);
+        L.push_back(v[0]);
+        A.push_back(v[1]);
+        B.push_back(v[2]);
     }
 
-    sort(L.begin(), L.end());
-    sort(A.begin(), A.end());
-    sort(B.begin(), B.end());
+    if (L.empty()) {
+        return Vec3f(0, 0, 0);
+    }
 
-    float medianL = L.empty() ? 0 : L[L.size() / 2];
-    float medianA = A.empty() ? 0 : A[A.size() / 2];
-    float medianB = B.empty() ? 0 : B[B.size() / 2];
+    // Use nth_element to find the median, which is much faster than a full sort.
+    size_t mid = L.size() / 2;
+    nth_element(L.begin(), L.begin() + mid, L.end());
+    nth_element(A.begin(), A.begin() + mid, A.end());
+    nth_element(B.begin(), B.begin() + mid, B.end());
 
-    return Vec3f(medianL, medianA, medianB);
+    return Vec3f(L[mid], A[mid], B[mid]);
 }
 
 void CellularTableDetector::detect(const Mat &imgBgra, Mat &mask, Mat &debugDraw,
@@ -58,17 +54,26 @@ void CellularTableDetector::detect(const Mat &imgBgra, Mat &mask, Mat &debugDraw
         rotated_bgra = imgBgra;
     }
 
-    Mat small_bgra;
-    float scale = (float)resizeHeight / rotated_bgra.rows;
-    resize(rotated_bgra, small_bgra, Size(0, 0), scale, scale, INTER_AREA);
-    
-    // For debug drawing, we need a BGR image
     Mat small_bgr;
-    cvtColor(small_bgra, small_bgr, COLOR_BGRA2BGR);
+    float scale = (float)resizeHeight / rotated_bgra.rows;
+    resize(rotated_bgra, small_bgr, Size(0, 0), scale, scale, INTER_AREA);
     debugDraw = small_bgr.clone();
 
-    int rows = static_cast<int>(ceil((double)small_bgra.rows / cellSize));
-    int cols = static_cast<int>(ceil((double)small_bgra.cols / cellSize));
+    // --- Single, Upfront LAB Conversion ---
+    Mat lab_image;
+    cvtColor(small_bgr, lab_image, COLOR_BGR2Lab);
+    Mat lab_float;
+    lab_image.convertTo(lab_float, CV_32F);
+    vector<Mat> channels(3);
+    split(lab_float, channels);
+    channels[0] = channels[0] * 100.0 / 255.0;
+    channels[1] = channels[1] - 128.0;
+    channels[2] = channels[2] - 128.0;
+    merge(channels, lab_float);
+    // --- End Conversion ---
+
+    int rows = static_cast<int>(ceil((double)lab_float.rows / cellSize));
+    int cols = static_cast<int>(ceil((double)lab_float.cols / cellSize));
 
     Mat visited = Mat::zeros(rows, cols, CV_8U);
     Mat inside = Mat::zeros(rows, cols, CV_8U);
@@ -78,10 +83,10 @@ void CellularTableDetector::detect(const Mat &imgBgra, Mat &mask, Mat &debugDraw
 
     int y1 = centreR * cellSize;
     int x1 = centreC * cellSize;
-    int y2 = min(y1 + cellSize, small_bgra.rows);
-    int x2 = min(x1 + cellSize, small_bgra.cols);
+    int y2 = min(y1 + cellSize, lab_float.rows);
+    int x2 = min(x1 + cellSize, lab_float.cols);
     Rect centerRect(x1, y1, x2 - x1, y2 - y1);
-    Vec3f refLab = getMedianLab(small_bgra(centerRect));
+    Vec3f refLab = getMedianLab(lab_float, centerRect);
 
     vector<Point> queue;
     queue.push_back(Point(centreC, centreR));
@@ -95,10 +100,10 @@ void CellularTableDetector::detect(const Mat &imgBgra, Mat &mask, Mat &debugDraw
 
         y1 = r * cellSize;
         x1 = c * cellSize;
-        y2 = min(y1 + cellSize, small_bgra.rows);
-        x2 = min(x1 + cellSize, small_bgra.cols);
+        y2 = min(y1 + cellSize, lab_float.rows);
+        x2 = min(x1 + cellSize, lab_float.cols);
         Rect cellRect(x1, y1, x2 - x1, y2 - y1);
-        Vec3f cellLab = getMedianLab(small_bgra(cellRect));
+        Vec3f cellLab = getMedianLab(lab_float, cellRect);
         if (deltaE2000(refLab, cellLab) < deltaEThreshold) {
             inside.at<uchar>(r, c) = 1;
             for (int dr = -1; dr <= 1; ++dr) {

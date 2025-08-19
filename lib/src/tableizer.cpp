@@ -283,34 +283,32 @@ DetectionResult* detect_table_bgra(const unsigned char* image_bytes, int width, 
         std::vector<cv::Point2f> quadPoints =
             tableDetector.quadFromInside(mask, tableDetection.cols, tableDetection.rows);
 
-        // --- Draw Quad on Debug Image ---
-        if (debug_image_path != nullptr && strlen(debug_image_path) > 0) {
-            if (quadPoints.size() == 4) {
-                std::vector<cv::Point> quadDraw;
-                quadDraw.reserve(quadPoints.size());
-                for (const auto& pt : quadPoints) {
-                    quadDraw.emplace_back(cvRound(pt.x), cvRound(pt.y));
-                }
-                cv::polylines(tableDetection, quadDraw, true, cv::Scalar(0, 0, 255), 5);
-            }
-            LOGI("Attempting to save debug image to: %s", debug_image_path);
-            if (cv::imwrite(debug_image_path, tableDetection)) {
-                LOGI("Successfully saved debug image with quad overlay.");
-            } else {
-                LOGE("Failed to save debug image.");
-            }
-        }
+        // --- Draw Quad on Debug Image (DISABLED FOR PERFORMANCE) ---
+        // if (debug_image_path != nullptr && strlen(debug_image_path) > 0) {
+        //     if (quadPoints.size() == 4) {
+        //         std::vector<cv::Point> quadDraw;
+        //         quadDraw.reserve(quadPoints.size());
+        //         for (const auto& pt : quadPoints) {
+        //             quadDraw.emplace_back(cvRound(pt.x), cvRound(pt.y));
+        //         }
+        //         cv::polylines(tableDetection, quadDraw, true, cv::Scalar(0, 0, 255), 5);
+        //     }
+        //     LOGI("Attempting to save debug image to: %s", debug_image_path);
+        //     if (cv::imwrite(debug_image_path, tableDetection)) {
+        //         LOGI("Successfully saved debug image with quad overlay.");
+        //     } else {
+        //         LOGE("Failed to save debug image.");
+        //     }
+        // }
 
         DetectionResult* result = new DetectionResult();
         result->quad_points_count = quadPoints.size();
         result->image_width = tableDetection.cols;
         result->image_height = tableDetection.rows;
-        LOGI("[C++] Detection Result: width=%d, height=%d", result->image_width,
-             result->image_height);
         for (size_t i = 0; i < quadPoints.size(); ++i) {
             result->quad_points[i] = {quadPoints[i].x, quadPoints[i].y};
-            LOGI("[C++]   point %zu: (%.1f, %.1f)", i, quadPoints[i].x, quadPoints[i].y);
         }
+        // LOGI("Detected %d quad points.", result->quad_points_count);
         return result;
 
     } catch (const std::exception& e) {

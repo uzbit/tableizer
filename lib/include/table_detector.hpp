@@ -14,7 +14,7 @@ class CellularTableDetector {
     vector<Point2f> quadFromInside(const Mat &inside, int width, int height);
 
    private:
-    Vec3f getMedianLab(const Mat &bgraCell);
+    Vec3f getMedianLab(const Mat &labImg, const Rect& cellRect);
     double deltaE2000(const Vec3f &lab1, const Vec3f &lab2);
     void drawCells(Mat &canvas, const Mat &insideMask);
 

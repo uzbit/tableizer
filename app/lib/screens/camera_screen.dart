@@ -63,15 +63,6 @@ class CameraScreenState extends State<CameraScreen> {
         _lastFrameTime = now;
       }
 
-      // --- Debug Logging ---
-      print(
-          '[Dart] Received Result: width=${result.imageSize.width}, height=${result.imageSize.height}');
-      for (int i = 0; i < result.points.length; i++) {
-        print(
-            '[Dart]   point $i: (${result.points[i].dx.toStringAsFixed(1)}, ${result.points[i].dy.toStringAsFixed(1)})');
-      }
-      // --- End Debug Logging ---
-
       setState(() {
         _quadPoints = result.points;
         _imageSize = result.imageSize;
