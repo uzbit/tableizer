@@ -57,7 +57,8 @@ void main() {
         rgbaImage.width,
         rgbaImage.height,
         rgbaImage.width * 4,
-          nullptr
+          0, // rotation deg
+          nullptr // debug image location string
       );
 
       // --- Assertions ---

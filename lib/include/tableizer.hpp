@@ -43,6 +43,8 @@ struct FFI_Point {
 struct DetectionResult {
     FFI_Point quad_points[4];
     int quad_points_count;
+    int image_width;
+    int image_height;
 };
 
 __attribute__((visibility("default"))) __attribute__((used)) void* initialize_detector(
@@ -58,7 +60,7 @@ __attribute__((visibility("default"))) __attribute__((used)) const char* detect_
 // Allocates a DetectionResult struct that must be freed by the caller.
 __attribute__((visibility("default"))) __attribute__((used)) DetectionResult* detect_table_bgra(
     const unsigned char* image_bytes, int width, int height, int stride,
-    const char* debug_image_path);
+    int rotation_degrees, const char* debug_image_path);
 
 // Frees the memory allocated by detect_table_bgra.
 __attribute__((visibility("default"))) __attribute__((used)) void free_bgra_detection_result(

@@ -33,7 +33,7 @@ int runTableizerForImage(Mat image, BallDetector& ballDetector) {
     double deltaEThreshold = 20.0;
     CellularTableDetector tableDetector(image.rows, cellSize, deltaEThreshold);
     Mat mask, tableDetection;
-    tableDetector.detect(image, mask, tableDetection);
+    tableDetector.detect(image, mask, tableDetection, 0);
     std::vector<cv::Point2f> directQuadPoints =
         tableDetector.quadFromInside(mask, tableDetection.cols, tableDetection.rows);
 
@@ -266,57 +266,51 @@ void release_detector(void* detector_ptr) {
 }
 
 DetectionResult* detect_table_bgra(const unsigned char* image_bytes, int width, int height,
-                                   int stride, const char* debug_image_path) {
+                                   int stride, int rotation_degrees, const char* debug_image_path) {
     try {
-        LOGI("HERE1.");
-        cv::Mat bgra_image(height, width, CV_8UC4, (void*)image_bytes, stride);
-        if (bgra_image.empty()) {
+        cv::Mat bgra_image_unrotated(height, width, CV_8UC4, (void*)image_bytes, stride);
+        if (bgra_image_unrotated.empty()) {
             LOGE("Failed to create image from bytes.");
             return nullptr;
         }
 
-        LOGI("HERE2.");
+        int cellSize = 20;
+        double deltaEThreshold = 20.0;
+        CellularTableDetector tableDetector(bgra_image_unrotated.rows, cellSize, deltaEThreshold);
+        Mat mask, tableDetection;
+        tableDetector.detect(bgra_image_unrotated, mask, tableDetection, rotation_degrees);
+
+        std::vector<cv::Point2f> quadPoints =
+            tableDetector.quadFromInside(mask, tableDetection.cols, tableDetection.rows);
+
+        // --- Draw Quad on Debug Image ---
         if (debug_image_path != nullptr && strlen(debug_image_path) > 0) {
+            if (quadPoints.size() == 4) {
+                std::vector<cv::Point> quadDraw;
+                quadDraw.reserve(quadPoints.size());
+                for (const auto& pt : quadPoints) {
+                    quadDraw.emplace_back(cvRound(pt.x), cvRound(pt.y));
+                }
+                cv::polylines(tableDetection, quadDraw, true, cv::Scalar(0, 0, 255), 5);
+            }
             LOGI("Attempting to save debug image to: %s", debug_image_path);
-            cv::Mat bgr_image_for_saving;
-            cv::cvtColor(bgra_image, bgr_image_for_saving, cv::COLOR_BGRA2BGR);
-            if (cv::imwrite(debug_image_path, bgr_image_for_saving)) {
-                LOGI("Successfully saved debug image.");
+            if (cv::imwrite(debug_image_path, tableDetection)) {
+                LOGI("Successfully saved debug image with quad overlay.");
             } else {
                 LOGE("Failed to save debug image.");
             }
         }
-        LOGI("HERE3.");
 
-        setenv("OPENCV_CPU_DISABLE", "FP16,NEON_DOTPROD,BF16,I8MM,SVE,SVE2", 1);
-        // 2) (Optional) disable OpenCV’s optimized code paths to confirm diagnosis
-        cv::setUseOptimized(false);
-
-        // 3) Avoid any scheduler weirdness while debugging
-        cv::setNumThreads(1);
-
-        // Convert to BGR for the detection logic
-        cv::Mat bgr_image;
-        cv::cvtColor(bgra_image, bgr_image, cv::COLOR_BGRA2BGR);
-        LOGI("HERE4.");
-
-        int cellSize = 20;
-        double deltaEThreshold = 20.0;
-        CellularTableDetector tableDetector(bgr_image.rows, cellSize, deltaEThreshold);
-        LOGI("HERE5.");
-        Mat mask, tableDetection;
-        tableDetector.detect(bgr_image, mask, tableDetection);
-        LOGI("HERE6.");
-
-        std::vector<cv::Point2f> quadPoints =
-            tableDetector.quadFromInside(mask, tableDetection.cols, tableDetection.rows);
-        LOGI("HERE7.");
         DetectionResult* result = new DetectionResult();
         result->quad_points_count = quadPoints.size();
+        result->image_width = tableDetection.cols;
+        result->image_height = tableDetection.rows;
+        LOGI("[C++] Detection Result: width=%d, height=%d", result->image_width,
+             result->image_height);
         for (size_t i = 0; i < quadPoints.size(); ++i) {
             result->quad_points[i] = {quadPoints[i].x, quadPoints[i].y};
+            LOGI("[C++]   point %zu: (%.1f, %.1f)", i, quadPoints[i].x, quadPoints[i].y);
         }
-        LOGI("Detected %d quad points.", result->quad_points_count);
         return result;
 
     } catch (const std::exception& e) {
@@ -347,7 +341,7 @@ const char* detect_table_rgba(const unsigned char* image_bytes, int width, int h
         double deltaEThreshold = 20.0;
         CellularTableDetector tableDetector(bgr.rows, cellSize, deltaEThreshold);
         Mat mask, tableDetection;
-        tableDetector.detect(bgr, mask, tableDetection);
+        tableDetector.detect(bgr, mask, tableDetection, 0);
         std::vector<cv::Point2f> quadPoints =
             tableDetector.quadFromInside(mask, tableDetection.cols, tableDetection.rows);
 

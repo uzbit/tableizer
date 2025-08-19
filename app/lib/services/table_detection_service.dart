@@ -1,16 +1,15 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:ffi' hide Size;
 import 'dart:io';
 import 'dart:isolate';
-import 'dart:typed_data';
+import 'dart:ui';
 
 import 'package:camerawesome/camerawesome_plugin.dart';
 import 'package:ffi/ffi.dart';
-import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'detection_isolate.dart';
+import 'table_detection_result.dart';
 
 // --- FFI Structs ---
 final class FFI_Point extends Struct {
@@ -25,13 +24,17 @@ final class DetectionResult extends Struct {
   external Array<FFI_Point> quad_points;
   @Int32()
   external int quad_points_count;
+  @Int32()
+  external int image_width;
+  @Int32()
+  external int image_height;
 }
 
 // --- FFI Function Signatures ---
 typedef DetectTableBgraC = Pointer<DetectionResult> Function(Pointer<Uint8> imageBytes, Int32 width,
-    Int32 height, Int32 stride, Pointer<Utf8> debugImagePath);
+    Int32 height, Int32 stride, Int32 rotationDegrees, Pointer<Utf8> debugImagePath);
 typedef DetectTableBgraDart = Pointer<DetectionResult> Function(Pointer<Uint8> imageBytes,
-    int width, int height, int stride, Pointer<Utf8> debugImagePath);
+    int width, int height, int stride, int rotationDegrees, Pointer<Utf8> debugImagePath);
 
 typedef FreeBgraDetectionResultC = Void Function(Pointer<DetectionResult> result);
 typedef FreeBgraDetectionResultDart = void Function(Pointer<DetectionResult> result);
@@ -40,16 +43,13 @@ class TableDetectionService {
   late final DetectTableBgraDart detectTableBgra;
   late final FreeBgraDetectionResultDart freeBgraDetectionResult;
 
-  final StreamController<List<Offset>> _detectionsController =
-      StreamController<List<Offset>>.broadcast();
-  Stream<List<Offset>> get detections => _detectionsController.stream;
-
-  final StreamController<Uint8List> _debugImageController =
-      StreamController<Uint8List>.broadcast();
-  Stream<Uint8List> get debugImages => _debugImageController.stream;
+  final StreamController<TableDetectionResult> _detectionsController =
+      StreamController<TableDetectionResult>.broadcast();
+  Stream<TableDetectionResult> get detections => _detectionsController.stream;
 
   Isolate? _isolate;
   SendPort? _sendPort;
+  bool _isReady = true; // Gate to control frame processing
   bool _isInitialized = false;
 
   Future<void> initialize() async {
@@ -65,14 +65,14 @@ class TableDetectionService {
         detectionIsolateEntry, [receivePort.sendPort, rootToken]);
 
     receivePort.listen((message) {
-      // print('[MAIN] Received message from isolate: ${message.runtimeType}');
       if (message is SendPort) {
         _sendPort = message;
         print('[MAIN] Received SendPort from isolate.');
-      } else if (message is List<Offset>) {
+      } else if (message is TableDetectionResult) {
         _detectionsController.add(message);
-      } else if (message is Map && message['type'] == 'debug_image') {
-        _debugImageController.add(message['data']);
+      } else if (message is bool && message == true) {
+        // This is the "ready" signal from the isolate
+        _isReady = true;
       }
     });
   }
@@ -93,12 +93,14 @@ class TableDetectionService {
   void dispose() {
     _isolate?.kill(priority: Isolate.immediate);
     _detectionsController.close();
-    _debugImageController.close();
   }
 
   Future<void> processImage(AnalysisImage image) async {
-    if (_sendPort == null) return;
+    if (_sendPort == null || !_isReady) {
+      // Drop frame if the isolate is busy or not ready
+      return;
+    }
+    _isReady = false; // Close the gate
     _sendPort!.send(image);
   }
 }
-

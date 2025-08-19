@@ -1,12 +1,9 @@
 import 'dart:async';
-import 'dart:convert';
-import 'dart:typed_data';
 import 'dart:ui' as ui;
 
+import 'package:app/services/table_detection_result.dart';
 import 'package:camerawesome/camerawesome_plugin.dart';
 import 'package:flutter/material.dart' hide BoxPainter;
-import 'package:image/image.dart' as img;
-import 'package:image/image.dart' as img;
 import '../services/ball_detection_service.dart';
 import '../services/table_detection_service.dart';
 
@@ -25,14 +22,13 @@ class CameraScreen extends StatefulWidget {
 class CameraScreenState extends State<CameraScreen> {
   final BallDetectionService _ballDetectionService = BallDetectionService();
   final TableDetectionService _tableDetectionService = TableDetectionService();
-  StreamSubscription<List<Offset>>? _tableDetectionsSubscription;
-  StreamSubscription<Uint8List>? _debugImageSubscription;
+  StreamSubscription<TableDetectionResult>? _tableDetectionsSubscription;
   List<Detection> _ballDetections = [];
   List<Offset> _quadPoints = [];
+  ui.Size? _imageSize;
   double _fps = 0.0;
   int _frameCounter = 0;
   DateTime _lastFrameTime = DateTime.now();
-  bool _isDialogShowing = false;
 
   @override
   void initState() {
@@ -43,7 +39,6 @@ class CameraScreenState extends State<CameraScreen> {
   @override
   void dispose() {
     _tableDetectionsSubscription?.cancel();
-    _debugImageSubscription?.cancel();
     _tableDetectionService.dispose();
     super.dispose();
   }
@@ -54,7 +49,7 @@ class CameraScreenState extends State<CameraScreen> {
     _lastFrameTime = DateTime.now();
 
     _tableDetectionsSubscription =
-        _tableDetectionService.detections.listen((points) {
+        _tableDetectionService.detections.listen((result) {
       if (!mounted) return;
 
       _frameCounter++;
@@ -68,30 +63,20 @@ class CameraScreenState extends State<CameraScreen> {
         _lastFrameTime = now;
       }
 
+      // --- Debug Logging ---
+      print(
+          '[Dart] Received Result: width=${result.imageSize.width}, height=${result.imageSize.height}');
+      for (int i = 0; i < result.points.length; i++) {
+        print(
+            '[Dart]   point $i: (${result.points[i].dx.toStringAsFixed(1)}, ${result.points[i].dy.toStringAsFixed(1)})');
+      }
+      // --- End Debug Logging ---
+
       setState(() {
-        _quadPoints = points;
+        _quadPoints = result.points;
+        _imageSize = result.imageSize;
         _fps = newFps;
       });
-    });
-
-    _debugImageSubscription =
-        _tableDetectionService.debugImages.listen((imageBytes) {
-      if (!mounted || _isDialogShowing) return;
-      _isDialogShowing = true;
-      showDialog(
-        context: context,
-        builder: (context) => AlertDialog(
-          content: Image.memory(imageBytes),
-          actions: <Widget>[
-            TextButton(
-              child: const Text('Close'),
-              onPressed: () {
-                Navigator.of(context).pop();
-              },
-            ),
-          ],
-        ),
-      ).then((_) => _isDialogShowing = false);
     });
   }
 
@@ -114,20 +99,21 @@ class CameraScreenState extends State<CameraScreen> {
         ),
         builder: (cameraState, preview) {
           return Stack(
-            fit: StackFit.expand,
             children: [
-              CustomPaint(
-                painter: BoxPainter(
-                  sensorSize: ui.Size(preview.rect.width, preview.rect.height),
-                  detections: _ballDetections,
+              // The CustomPaint is now positioned precisely over the camera preview.
+              if (_imageSize != null)
+                Positioned(
+                  left: preview.rect.left,
+                  top: preview.rect.top,
+                  width: preview.rect.width,
+                  height: preview.rect.height,
+                  child: CustomPaint(
+                    painter: TablePainter(
+                      imageSize: _imageSize,
+                      quadPoints: _quadPoints,
+                    ),
+                  ),
                 ),
-              ),
-              CustomPaint(
-                painter: TablePainter(
-                  sensorSize: ui.Size(preview.rect.width, preview.rect.height),
-                  quadPoints: _quadPoints,
-                ),
-              ),
               Align(
                 alignment: Alignment.topLeft,
                 child: Container(

@@ -11,13 +11,14 @@
 CellularTableDetector::CellularTableDetector(int resizeHeight, int cellSize, double deltaEThreshold)
     : resizeHeight(resizeHeight), cellSize(cellSize), deltaEThreshold(deltaEThreshold) {}
 
-Vec3f CellularTableDetector::getMedianLab(const Mat &bgrCell) {
+Vec3f CellularTableDetector::getMedianLab(const Mat &bgraCell) {
     Mat labCell;
+    // Convert the small BGRA cell to BGR then to LAB
+    Mat bgrCell;
+    cvtColor(bgraCell, bgrCell, COLOR_BGRA2BGR);
     cvtColor(bgrCell, labCell, COLOR_BGR2Lab);
     CV_Assert(labCell.type() == CV_8UC3);
 
-    Mat cellReshaped(static_cast<int>(labCell.total()), 1, CV_32FC3);
-    
     vector<float> L, A, B;
     L.reserve(labCell.total());
     A.reserve(labCell.total());
@@ -43,14 +44,31 @@ Vec3f CellularTableDetector::getMedianLab(const Mat &bgrCell) {
     return Vec3f(medianL, medianA, medianB);
 }
 
-void CellularTableDetector::detect(const Mat &imgBgr, Mat &mask, Mat &debugDraw) {
+void CellularTableDetector::detect(const Mat &imgBgra, Mat &mask, Mat &debugDraw,
+                                   int rotationDegrees) {
+    // --- Image Rotation ---
+    cv::Mat rotated_bgra;
+    if (rotationDegrees == 90) {
+        cv::rotate(imgBgra, rotated_bgra, cv::ROTATE_90_CLOCKWISE);
+    } else if (rotationDegrees == 270) {
+        cv::rotate(imgBgra, rotated_bgra, cv::ROTATE_90_COUNTERCLOCKWISE);
+    } else if (rotationDegrees == 180) {
+        cv::rotate(imgBgra, rotated_bgra, cv::ROTATE_180);
+    } else {
+        rotated_bgra = imgBgra;
+    }
+
+    Mat small_bgra;
+    float scale = (float)resizeHeight / rotated_bgra.rows;
+    resize(rotated_bgra, small_bgra, Size(0, 0), scale, scale, INTER_AREA);
+    
+    // For debug drawing, we need a BGR image
     Mat small_bgr;
-    float scale = (float)resizeHeight / imgBgr.rows;
-    resize(imgBgr, small_bgr, Size(0, 0), scale, scale, INTER_AREA);
+    cvtColor(small_bgra, small_bgr, COLOR_BGRA2BGR);
     debugDraw = small_bgr.clone();
 
-    int rows = static_cast<int>(ceil((double)small_bgr.rows / cellSize));
-    int cols = static_cast<int>(ceil((double)small_bgr.cols / cellSize));
+    int rows = static_cast<int>(ceil((double)small_bgra.rows / cellSize));
+    int cols = static_cast<int>(ceil((double)small_bgra.cols / cellSize));
 
     Mat visited = Mat::zeros(rows, cols, CV_8U);
     Mat inside = Mat::zeros(rows, cols, CV_8U);
@@ -60,10 +78,10 @@ void CellularTableDetector::detect(const Mat &imgBgr, Mat &mask, Mat &debugDraw)
 
     int y1 = centreR * cellSize;
     int x1 = centreC * cellSize;
-    int y2 = min(y1 + cellSize, small_bgr.rows);
-    int x2 = min(x1 + cellSize, small_bgr.cols);
+    int y2 = min(y1 + cellSize, small_bgra.rows);
+    int x2 = min(x1 + cellSize, small_bgra.cols);
     Rect centerRect(x1, y1, x2 - x1, y2 - y1);
-    Vec3f refLab = getMedianLab(small_bgr(centerRect));
+    Vec3f refLab = getMedianLab(small_bgra(centerRect));
 
     vector<Point> queue;
     queue.push_back(Point(centreC, centreR));
@@ -77,10 +95,10 @@ void CellularTableDetector::detect(const Mat &imgBgr, Mat &mask, Mat &debugDraw)
 
         y1 = r * cellSize;
         x1 = c * cellSize;
-        y2 = min(y1 + cellSize, small_bgr.rows);
-        x2 = min(x1 + cellSize, small_bgr.cols);
+        y2 = min(y1 + cellSize, small_bgra.rows);
+        x2 = min(x1 + cellSize, small_bgra.cols);
         Rect cellRect(x1, y1, x2 - x1, y2 - y1);
-        Vec3f cellLab = getMedianLab(small_bgr(cellRect));
+        Vec3f cellLab = getMedianLab(small_bgra(cellRect));
         if (deltaE2000(refLab, cellLab) < deltaEThreshold) {
             inside.at<uchar>(r, c) = 1;
             for (int dr = -1; dr <= 1; ++dr) {
