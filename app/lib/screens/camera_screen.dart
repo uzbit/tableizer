@@ -90,21 +90,42 @@ class CameraScreenState extends State<CameraScreen> {
         ),
         builder: (cameraState, preview) {
           return Stack(
+            fit: StackFit.expand,
             children: [
-              // The CustomPaint is now positioned precisely over the camera preview.
+              // Use a LayoutBuilder to get the exact size of the preview area.
               if (_imageSize != null)
-                Positioned(
-                  left: preview.rect.left,
-                  top: preview.rect.top,
-                  width: preview.rect.width,
-                  height: preview.rect.height,
-                  child: CustomPaint(
-                    painter: TablePainter(
-                      imageSize: _imageSize,
-                      quadPoints: _quadPoints,
-                    ),
-                  ),
-                ),
+                LayoutBuilder(builder: (context, constraints) {
+                  final screenSize = constraints.biggest;
+                  final imageSize = _imageSize!;
+
+                  // Calculate the scale and offset to mimic BoxFit.cover
+                  final double imageAspectRatio =
+                      imageSize.width / imageSize.height;
+                  final double screenAspectRatio =
+                      screenSize.width / screenSize.height;
+
+                  double scale;
+                  if (screenAspectRatio > imageAspectRatio) {
+                    scale = screenSize.width / imageSize.width;
+                  } else {
+                    scale = screenSize.height / imageSize.height;
+                  }
+
+                  final double scaledWidth = imageSize.width * scale;
+                  final double scaledHeight = imageSize.height * scale;
+                  final double dx = (screenSize.width - scaledWidth) / 2.0;
+                  final double dy = (screenSize.height - scaledHeight) / 2.0;
+
+                  // Transform the points from image coordinates to screen coordinates
+                  final scaledPoints = _quadPoints.map((p) {
+                    return Offset(p.dx * scale + dx, p.dy * scale + dy);
+                  }).toList();
+
+                  return CustomPaint(
+                    size: screenSize,
+                    painter: TablePainter(quadPoints: scaledPoints),
+                  );
+                }),
               Align(
                 alignment: Alignment.topLeft,
                 child: Container(

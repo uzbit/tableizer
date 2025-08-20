@@ -1,47 +1,34 @@
-import 'dart:ui' as ui;
-
 import 'package:flutter/material.dart';
 
 class TablePainter extends CustomPainter {
   TablePainter({
-    required this.imageSize,
     required this.quadPoints,
   });
 
-  final ui.Size? imageSize;
   final List<Offset> quadPoints;
 
   @override
-  void paint(Canvas canvas, ui.Size size) {
-    if (quadPoints.isEmpty || imageSize == null) return;
+  void paint(Canvas canvas, Size size) {
+    if (quadPoints.isEmpty) return;
 
     final paint = Paint()
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 10
+      ..strokeWidth = 4.0
       ..color = Colors.red;
 
-    // The Positioned widget in the parent has already aligned our canvas
-    // with the camera preview. We just need to scale the points from the
-    // image coordinate space to our canvas's coordinate space.
-    final double scaleX = size.width / imageSize!.width;
-    final double scaleY = size.height / imageSize!.height;
-
     final path = Path();
-    for (int i = 0; i < quadPoints.length; i++) {
-      final point = quadPoints[i];
-      final Offset screenPoint = Offset(point.dx * scaleX, point.dy * scaleY);
-
-      if (i == 0) {
-        path.moveTo(screenPoint.dx, screenPoint.dy);
-      } else {
-        path.lineTo(screenPoint.dx, screenPoint.dy);
+    if (quadPoints.isNotEmpty) {
+      path.moveTo(quadPoints.first.dx, quadPoints.first.dy);
+      for (int i = 1; i < quadPoints.length; i++) {
+        path.lineTo(quadPoints[i].dx, quadPoints[i].dy);
       }
+      path.close();
     }
-    path.close();
+
     canvas.drawPath(path, paint);
   }
 
   @override
   bool shouldRepaint(covariant TablePainter old) =>
-      old.quadPoints != quadPoints || old.imageSize != imageSize;
+      old.quadPoints != quadPoints;
 }

@@ -63,13 +63,16 @@ void CellularTableDetector::detect(const Mat &imgBgra, Mat &mask, Mat &debugDraw
     Mat lab_image;
     cvtColor(small_bgr, lab_image, COLOR_BGR2Lab);
     Mat lab_float;
-    lab_image.convertTo(lab_float, CV_32F);
-    vector<Mat> channels(3);
-    split(lab_float, channels);
-    channels[0] = channels[0] * 100.0 / 255.0;
-    channels[1] = channels[1] - 128.0;
-    channels[2] = channels[2] - 128.0;
-    merge(channels, lab_float);
+    vector<Mat> lab_channels_8u;
+    split(lab_image, lab_channels_8u);
+
+    Mat l_float, a_float, b_float;
+    lab_channels_8u[0].convertTo(l_float, CV_32F, 100.0 / 255.0);
+    lab_channels_8u[1].convertTo(a_float, CV_32F, 1.0, -128.0);
+    lab_channels_8u[2].convertTo(b_float, CV_32F, 1.0, -128.0);
+
+    vector<Mat> float_channels = {l_float, a_float, b_float};
+    merge(float_channels, lab_float);
     // --- End Conversion ---
 
     int rows = static_cast<int>(ceil((double)lab_float.rows / cellSize));
