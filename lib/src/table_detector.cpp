@@ -11,8 +11,8 @@
 CellularTableDetector::CellularTableDetector(int resizeHeight, int cellSize, double deltaEThreshold)
     : resizeHeight(resizeHeight), cellSize(cellSize), deltaEThreshold(deltaEThreshold) {}
 
-Vec3f CellularTableDetector::getMedianLab(const Mat &labImg, const Rect& cellRect) {
-    Mat cell = labImg(cellRect).clone(); // Create a deep copy to ensure continuity
+Vec3f CellularTableDetector::getMedianLab(const Mat &labImg, const Rect &cellRect) {
+    Mat cell = labImg(cellRect).clone();  // Create a deep copy to ensure continuity
     Mat cellReshaped = cell.reshape(1, cell.total());
 
     vector<float> L, A, B;
@@ -21,7 +21,7 @@ Vec3f CellularTableDetector::getMedianLab(const Mat &labImg, const Rect& cellRec
     B.reserve(cellReshaped.rows);
 
     for (int i = 0; i < cellReshaped.rows; ++i) {
-        const Vec3f& v = cellReshaped.at<Vec3f>(i, 0);
+        const Vec3f &v = cellReshaped.at<Vec3f>(i, 0);
         L.push_back(v[0]);
         A.push_back(v[1]);
         B.push_back(v[2]);
@@ -55,7 +55,7 @@ void CellularTableDetector::detect(const Mat &imgBgra, Mat &mask, Mat &debugDraw
     }
 
     Mat small_bgr;
-    float scale = (float)resizeHeight / rotated_bgra.rows;
+    float scale = 1.0;  //(float)resizeHeight / rotated_bgra.rows;
     resize(rotated_bgra, small_bgr, Size(0, 0), scale, scale, INTER_AREA);
     debugDraw = small_bgr.clone();
 

@@ -55,11 +55,12 @@ void detectionIsolateEntry(List<dynamic> args) async {
 
           imagePtr.asTypedList(bytes.length).setAll(0, bytes);
 
-          String debugImagePath = '';
-          if (frameCount % 150 == 0) {
-            debugImagePath = '${tempDir.path}/native_debug_$frameCount.png';
-          }
-          pathPtr = debugImagePath.toNativeUtf8();
+          // String debugImagePath = '';
+          // if (frameCount % 150 == 0) {
+          //   debugImagePath = '${tempDir.path}/native_debug_$frameCount.png';
+          // }
+          // pathPtr = debugImagePath.toNativeUtf8();
+          pathPtr = nullptr;
 
           int rotationDegrees = 0;
           switch (image.rotation) {

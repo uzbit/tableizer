@@ -76,56 +76,62 @@ class CameraScreenState extends State<CameraScreen> {
     return Scaffold(
       appBar: AppBar(title: const Text('Tableizer')),
       body: CameraAwesomeBuilder.custom(
-        previewFit: CameraPreviewFit.cover,
+        // Use CONTAIN to ensure the preview is not cropped.
+        previewFit: CameraPreviewFit.contain,
         saveConfig: SaveConfig.photoAndVideo(),
         sensorConfig: SensorConfig.single(
           sensor: Sensor.position(SensorPosition.back),
           flashMode: FlashMode.none,
-          aspectRatio: CameraAspectRatios.ratio_16_9,
+          // IMPORTANT: Match the analysis image aspect ratio
+          aspectRatio: CameraAspectRatios.ratio_4_3,
         ),
         onImageForAnalysis: _tableDetectionService.processImage,
         imageAnalysisConfig: AnalysisConfig(
-          androidOptions: const AndroidAnalysisOptions.bgra8888(width: 1080),
+          androidOptions: const AndroidAnalysisOptions.bgra8888(width: 1280),
           maxFramesPerSecond: 30,
         ),
         builder: (cameraState, preview) {
           return Stack(
             fit: StackFit.expand,
             children: [
-              // Use a LayoutBuilder to get the exact size of the preview area.
+              // The preview is rendered automatically by the builder.
               if (_imageSize != null)
                 LayoutBuilder(builder: (context, constraints) {
-                  final screenSize = constraints.biggest;
+                  final previewSize = constraints.biggest;
                   final imageSize = _imageSize!;
 
-                  // Calculate the scale and offset to mimic BoxFit.cover
-                  final double imageAspectRatio =
-                      imageSize.width / imageSize.height;
-                  final double screenAspectRatio =
-                      screenSize.width / screenSize.height;
+                  final imageAspectRatio = imageSize.width / imageSize.height;
+                  final previewAspectRatio = previewSize.width / previewSize.height;
 
                   double scale;
-                  if (screenAspectRatio > imageAspectRatio) {
-                    scale = screenSize.width / imageSize.width;
+                  // This logic mimics BoxFit.contain.
+                  if (previewAspectRatio > imageAspectRatio) {
+                    // Preview is wider than the image -> letterbox
+                    scale = previewSize.height / imageSize.height;
                   } else {
-                    scale = screenSize.height / imageSize.height;
+                    // Preview is taller than the image -> pillarbox
+                    scale = previewSize.width / imageSize.width;
                   }
 
-                  final double scaledWidth = imageSize.width * scale;
-                  final double scaledHeight = imageSize.height * scale;
-                  final double dx = (screenSize.width - scaledWidth) / 2.0;
-                  final double dy = (screenSize.height - scaledHeight) / 2.0;
+                  final scaledWidth = imageSize.width * scale;
+                  final scaledHeight = imageSize.height * scale;
 
-                  // Transform the points from image coordinates to screen coordinates
+                  // Center the scaled image within the preview.
+                  final dx = (previewSize.width - scaledWidth) / 2.0;
+                  final dy = (previewSize.height - scaledHeight) / 2.0;
+
+                  // Transform points from image-space to screen-space.
                   final scaledPoints = _quadPoints.map((p) {
                     return Offset(p.dx * scale + dx, p.dy * scale + dy);
                   }).toList();
 
                   return CustomPaint(
-                    size: screenSize,
+                    size: previewSize,
                     painter: TablePainter(quadPoints: scaledPoints),
                   );
                 }),
+
+              // --- UI Overlays (FPS, etc.) ---
               Align(
                 alignment: Alignment.topLeft,
                 child: Container(
@@ -133,16 +139,6 @@ class CameraScreenState extends State<CameraScreen> {
                   child: Text(
                     'FPS: ${_fps.toStringAsFixed(1)}',
                     style: const TextStyle(color: Colors.white, fontSize: 20),
-                  ),
-                ),
-              ),
-              Align(
-                alignment: Alignment.bottomLeft,
-                child: Container(
-                  color: Colors.black.withOpacity(0.5),
-                  child: Text(
-                    'Points: ${_quadPoints.toString()}',
-                    style: const TextStyle(color: Colors.white, fontSize: 12),
                   ),
                 ),
               ),

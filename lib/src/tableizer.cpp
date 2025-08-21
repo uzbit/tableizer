@@ -21,8 +21,8 @@ using namespace cv;
 
 #define CONF_THRESH 0.6
 #define IOU_THRESH 0.5
-#define CELL_SIZE 20
-#define DELTAE_THRESH 20.0
+#define CELL_SIZE 10
+#define DELTAE_THRESH 15.0
 #define RESIZE 800  // not used
 
 int runTableizerForImage(Mat image, BallDetector& ballDetector) {
@@ -284,23 +284,27 @@ DetectionResult* detect_table_bgra(const unsigned char* image_bytes, int width, 
         std::vector<cv::Point2f> quadPoints =
             tableDetector.quadFromInside(mask, tableDetection.cols, tableDetection.rows);
 
+        /*
         // --- Draw Quad on Debug Image (DISABLED FOR PERFORMANCE) ---
-        // if (debug_image_path != nullptr && strlen(debug_image_path) > 0) {
-        //     if (quadPoints.size() == 4) {
-        //         std::vector<cv::Point> quadDraw;
-        //         quadDraw.reserve(quadPoints.size());
-        //         for (const auto& pt : quadPoints) {
-        //             quadDraw.emplace_back(cvRound(pt.x), cvRound(pt.y));
-        //         }
-        //         cv::polylines(tableDetection, quadDraw, true, cv::Scalar(0, 0, 255), 5);
-        //     }
-        //     LOGI("Attempting to save debug image to: %s", debug_image_path);
-        //     if (cv::imwrite(debug_image_path, tableDetection)) {
-        //         LOGI("Successfully saved debug image with quad overlay.");
-        //     } else {
-        //         LOGE("Failed to save debug image.");
-        //     }
-        // }
+        if (debug_image_path != nullptr && strlen(debug_image_path) > 0) {
+            if (quadPoints.size() == 4) {
+                std::vector<cv::Point> quadDraw;
+                quadDraw.reserve(quadPoints.size());
+                for (const auto& pt : quadPoints) {
+                    quadDraw.emplace_back(cvRound(pt.x), cvRound(pt.y));
+                }
+                cv::polylines(tableDetection, quadDraw, true, cv::Scalar(0, 0, 255), 5);
+            }
+            LOGI("Attempting to save debug image to: %s", debug_image_path);
+            Mat rgb;
+            cv::cvtColor(tableDetection, rgb, cv::COLOR_BGRA2RGB);
+            if (cv::imwrite(debug_image_path, rgb)) {
+                LOGI("Successfully saved debug image with quad overlay.");
+            } else {
+                LOGE("Failed to save debug image.");
+            }
+        }
+        */
 
         DetectionResult* result = new DetectionResult();
         result->quad_points_count = quadPoints.size();
