@@ -44,7 +44,7 @@ class CameraScreenState extends State<CameraScreen> {
   }
 
   Future<void> _initializeServices() async {
-    await _ballDetectionService.initialize();
+    //await _ballDetectionService.initialize();
     await _tableDetectionService.initialize();
     _lastFrameTime = DateTime.now();
 
