@@ -8,7 +8,7 @@ import 'package:camerawesome/camerawesome_plugin.dart';
 import 'package:ffi/ffi.dart';
 import 'package:flutter/services.dart';
 
-import 'detection_isolate.dart';
+import 'table_detection_isolate.dart';
 import 'table_detection_result.dart';
 
 // --- FFI Structs ---
@@ -62,7 +62,7 @@ class TableDetectionService {
     print('[MAIN] Spawning isolate...');
     final rootToken = RootIsolateToken.instance!;
     _isolate = await Isolate.spawn(
-        detectionIsolateEntry, [receivePort.sendPort, rootToken]);
+        tableDetectionIsolateEntry, [receivePort.sendPort, rootToken]);
 
     receivePort.listen((message) {
       if (message is SendPort) {

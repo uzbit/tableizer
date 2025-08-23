@@ -11,8 +11,8 @@ import 'package:path_provider/path_provider.dart';
 import 'table_detection_result.dart';
 import 'table_detection_service.dart';
 
-/// The entry point for the detection isolate.
-void detectionIsolateEntry(List<dynamic> args) async {
+/// The entry point for the table detection isolate.
+void tableDetectionIsolateEntry(List<dynamic> args) async {
   final sendPort = args[0] as SendPort;
   final rootToken = args[1] as RootIsolateToken;
 
@@ -20,7 +20,7 @@ void detectionIsolateEntry(List<dynamic> args) async {
   BackgroundIsolateBinaryMessenger.ensureInitialized(rootToken);
   // ----------------------------------------------------------------
 
-  print('[ISOLATE] Isolate started.');
+  print('[TABLE_ISOLATE] Table detection isolate started.');
   final receivePort = ReceivePort();
   sendPort.send(receivePort.sendPort);
 
@@ -107,7 +107,7 @@ void detectionIsolateEntry(List<dynamic> args) async {
             ));
           }
         } catch (e) {
-          print('[ISOLATE] Error processing image: $e');
+          print('[TABLE_ISOLATE] Error processing image: $e');
         } finally {
           if (resultPtr != nullptr) {
             freeBgraDetectionResult(resultPtr);

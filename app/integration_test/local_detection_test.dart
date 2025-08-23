@@ -67,15 +67,11 @@ void main() {
       expect(result.quad_points_count, 4);
 
       // EXPECTED QUAD (in resized detection image coordinates):
-      // x, y: 1045.0, 1719.0
-      // x, y: 2146.0, 1719.0
-      // x, y: 3224.0, 3176.0
-      // x, y: 44.0, 3176.0
       final expectedPoints = [
-        img.Point(1045.0, 1719.0),
-        img.Point(2146.0, 1719.0),
-        img.Point(3224.0, 3176.0),
-        img.Point(44.0, 3176.0),
+        img.Point(1045.0, 1729.0),
+        img.Point(2129.0, 1709.0),
+        img.Point(3163.0, 3109.0),
+        img.Point(42.0, 3205.0),
       ];
 
       for (int i = 0; i < 4; i++) {

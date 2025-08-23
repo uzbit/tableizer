@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:app/services/table_detection_result.dart';
@@ -8,9 +9,7 @@ import '../services/ball_detection_service.dart';
 import '../services/table_detection_service.dart';
 
 import '../detection_box.dart';
-import '../widgets/box_painter.dart';
 import '../widgets/table_painter.dart';
-import 'table_screen.dart';
 
 class CameraScreen extends StatefulWidget {
   const CameraScreen({super.key});
@@ -29,6 +28,9 @@ class CameraScreenState extends State<CameraScreen> {
   double _fps = 0.0;
   int _frameCounter = 0;
   DateTime _lastFrameTime = DateTime.now();
+  
+  // Image capture state
+  bool _showCaptureMessage = false;
 
   @override
   void initState() {
@@ -68,6 +70,21 @@ class CameraScreenState extends State<CameraScreen> {
         _imageSize = result.imageSize;
         _fps = newFps;
       });
+    });
+  }
+
+  void _simulateCapture() {
+    setState(() {
+      _showCaptureMessage = true;
+    });
+    
+    // Auto-hide after 2 seconds
+    Timer(const Duration(seconds: 2), () {
+      if (mounted) {
+        setState(() {
+          _showCaptureMessage = false;
+        });
+      }
     });
   }
 
@@ -131,33 +148,54 @@ class CameraScreenState extends State<CameraScreen> {
                   );
                 }),
 
-              // --- UI Overlays (FPS, etc.) ---
-              Align(
-                alignment: Alignment.topLeft,
-                child: Container(
-                  color: Colors.black.withOpacity(0.5),
-                  child: Text(
-                    'FPS: ${_fps.toStringAsFixed(1)}',
-                    style: const TextStyle(color: Colors.white, fontSize: 20),
+              // --- Capture Message Overlay ---
+              if (_showCaptureMessage)
+                Container(
+                  color: Colors.black54,
+                  child: const Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          Icons.photo_camera,
+                          size: 80,
+                          color: Colors.white,
+                        ),
+                        SizedBox(height: 16),
+                        Text(
+                          'Image Captured!\n(Ready for ball detection)',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
-              ),
+
+              // --- UI Overlays (FPS, etc.) ---
+              if (!_showCaptureMessage)
+                Align(
+                  alignment: Alignment.topLeft,
+                  child: Container(
+                    color: Colors.black.withValues(alpha: 0.5),
+                    child: Text(
+                      'FPS: ${_fps.toStringAsFixed(1)}',
+                      style: const TextStyle(color: Colors.white, fontSize: 20),
+                    ),
+                  ),
+                ),
             ],
           );
         },
       ),
       floatingActionButton: FloatingActionButton(
-        onPressed: () {
-          Navigator.of(context).push(
-            MaterialPageRoute(
-              builder: (context) => TableScreen(
-                tableDetectionService: _tableDetectionService,
-              ),
-            ),
-          );
-        },
-        tooltip: 'Process Local Image',
-        child: const Icon(Icons.image),
+        onPressed: _simulateCapture,
+        tooltip: 'Capture Image',
+        child: const Icon(Icons.camera_alt),
       ),
     );
   }
