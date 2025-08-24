@@ -55,7 +55,7 @@ class TableBallPainter extends CustomPainter {
     _drawBallAtPosition(canvas, detection, Offset(x, y));
   }
 
-  /// Simple perspective transformation from quad to display rectangle
+  /// Simple approach: rotate the input data if needed, then do perspective transform
   List<Offset> _transformPointsUsingQuad(
     List<Offset> points,
     List<Offset> quadPoints,
@@ -64,86 +64,166 @@ class TableBallPainter extends CustomPainter {
   ) {
     if (quadPoints.length != 4 || points.isEmpty) return points;
     
-    // Order quad points counter-clockwise starting from top-left
+    // Order quad points counter-clockwise 
     final orderedQuad = _orderQuadPoints(quadPoints);
     
-    // Calculate edge lengths to determine if rotation is needed
-    final topLength = _distance(orderedQuad[0], orderedQuad[1]);     // top edge
-    final rightLength = _distance(orderedQuad[1], orderedQuad[2]);   // right edge
-    final needsRotation = topLength > rightLength * 1.25;  // If top > 1.25x right, table is landscape in camera, needs rotation
+    // Check if we need rotation based on quad orientation
+    final topLength = _distance(orderedQuad[0], orderedQuad[1]);
+    final rightLength = _distance(orderedQuad[1], orderedQuad[2]);
+    final needsRotation = topLength > rightLength * 1.25;
     
-    // Apply rotation if needed
-    List<Offset> workingQuad;
+    print('Quad analysis: topLength=$topLength, rightLength=$rightLength, needsRotation=$needsRotation');
+    
+    // Step 1: If rotation needed, rotate both quad and ball points around image center
+    List<Offset> workingQuad = orderedQuad;
+    List<Offset> workingPoints = points;
+    
     if (needsRotation) {
-      // Rotate quad points 90° CCW
+      final centerX = imageSize.width / 2;
+      final centerY = imageSize.height / 2;
+      
+      // Rotate quad points 90° CCW around image center
       workingQuad = orderedQuad.map((point) {
-        final centerX = imageSize.width / 2;
-        final centerY = imageSize.height / 2;
         final translatedX = point.dx - centerX;
         final translatedY = point.dy - centerY;
-        
         // 90° CCW: (x,y) → (-y, x)
         final rotatedX = -translatedY + centerX;
         final rotatedY = translatedX + centerY;
-        
         return Offset(rotatedX, rotatedY);
       }).toList();
-      print('ROTATION APPLIED: topLength=$topLength > rightLength=$rightLength');
-    } else {
-      // Use original quad
-      workingQuad = orderedQuad;
-      print('NO ROTATION: topLength=$topLength <= rightLength=$rightLength');
-    }
-    
-    print('Table orientation (ROTATED): topLength=$topLength, rightLength=$rightLength, needsRotation=$needsRotation');
-    print('Working quad points: $workingQuad');
-    
-    // Define the canonical table corners based on our display orientation
-    // Key insight: Our DISPLAY table has long axis on Y (portrait: width=411, height=823)
-    // But DETECTED table is landscape (top=752 > right=359)
-    // We need to map the landscape quad to the portrait display
-    
-    List<Offset> canonicalCorners;
-    
-    // After rotation (if applied), always use direct mapping to portrait display
-    canonicalCorners = [
-      Offset(0, 0),                               // top-left → top-left
-      Offset(displaySize.width, 0),               // top-right → top-right
-      Offset(displaySize.width, displaySize.height), // bottom-right → bottom-right
-      Offset(0, displaySize.height),              // bottom-left → bottom-left
-    ];
-    print('DIRECT MAPPING TO PORTRAIT DISPLAY');
-    
-    print('Canonical corners: $canonicalCorners');
-    
-    // Transform each ball point (apply same rotation as quad if needed)
-    return points.map((point) {
-      Offset workingBallPoint;
       
-      if (needsRotation) {
-        // Apply same 90° CCW rotation to ball point
-        final centerX = imageSize.width / 2;
-        final centerY = imageSize.height / 2;
+      // Rotate ball points the same way
+      workingPoints = points.map((point) {
         final translatedX = point.dx - centerX;
         final translatedY = point.dy - centerY;
-        
-        // 90° CCW rotation
-        final rotatedBallX = -translatedY + centerX;
-        final rotatedBallY = translatedX + centerY;
-        workingBallPoint = Offset(rotatedBallX, rotatedBallY);
-        
-        print('Ball ${point} → rotated: ${workingBallPoint}');
-      } else {
-        // Use original ball point
-        workingBallPoint = point;
-        print('Ball ${point} → no rotation');
-      }
+        final rotatedX = -translatedY + centerX;
+        final rotatedY = translatedX + centerY;
+        return Offset(rotatedX, rotatedY);
+      }).toList();
       
-      // Transform using working quad and working ball point
-      final transformed = _transformPoint(workingBallPoint, workingQuad, canonicalCorners);
-      print('Final: ${workingBallPoint} → ${transformed}');
+      print('Applied rotation around image center');
+    }
+    
+    // Step 2: Do simple perspective transform from rotated quad to display rectangle
+    final dstCorners = [
+      Offset(0, 0),
+      Offset(displaySize.width, 0),
+      Offset(displaySize.width, displaySize.height),
+      Offset(0, displaySize.height),
+    ];
+    
+    return workingPoints.map((point) {
+      final transformed = _transformPoint(point, workingQuad, dstCorners);
+      print('Ball ${point} → ${transformed}');
       return transformed;
     }).toList();
+  }
+  
+  /// Build combined transformation matrix: Perspective * Rotation (if needed)
+  List<List<double>> _buildTransformMatrix(
+    List<Offset> quadPoints, 
+    ui.Size displaySize, 
+    bool needsRotation
+  ) {
+    // Step 1: Create destination corners for perspective transform
+    List<Offset> dstCorners;
+    
+    // Always map to the final display rectangle 
+    dstCorners = [
+      Offset(0, 0),
+      Offset(displaySize.width, 0),
+      Offset(displaySize.width, displaySize.height),
+      Offset(0, displaySize.height),
+    ];
+    
+    // Step 2: Build perspective transform matrix (simplified)
+    final perspectiveMatrix = _buildSimplePerspectiveMatrix(quadPoints, dstCorners);
+    
+    // Step 3: Apply rotation matrix if needed 
+    if (needsRotation) {
+      // Rotate around center of display rectangle
+      final centerX = displaySize.width / 2;
+      final centerY = displaySize.height / 2;
+      
+      // Combined rotation matrix: Translate to center + Rotate 90° CCW + Translate back
+      // Final transformation: (x,y) → (-y + centerX + centerY, x - centerX + centerY)
+      final rotationMatrix = [
+        [0.0, -1.0, centerX + centerY],
+        [1.0, 0.0, centerY - centerX],  
+        [0.0, 0.0, 1.0],
+      ];
+      
+      return _multiplyMatrix3x3(rotationMatrix, perspectiveMatrix);
+    }
+    
+    return perspectiveMatrix;
+  }
+  
+  /// Build simple perspective transform matrix from quad to rectangle
+  List<List<double>> _buildSimplePerspectiveMatrix(List<Offset> src, List<Offset> dst) {
+    // Simplified affine approximation
+    final srcRect = _boundingRect(src);
+    final dstRect = _boundingRect(dst);
+    
+    final scaleX = dstRect.width / srcRect.width;
+    final scaleY = dstRect.height / srcRect.height;
+    final translateX = dstRect.left - srcRect.left * scaleX;
+    final translateY = dstRect.top - srcRect.top * scaleY;
+    
+    return [
+      [scaleX, 0.0, translateX],
+      [0.0, scaleY, translateY],
+      [0.0, 0.0, 1.0],
+    ];
+  }
+  
+  /// Multiply two 3x3 matrices
+  List<List<double>> _multiplyMatrix3x3(List<List<double>> a, List<List<double>> b) {
+    final result = List.generate(3, (_) => List<double>.filled(3, 0.0));
+    
+    for (int i = 0; i < 3; i++) {
+      for (int j = 0; j < 3; j++) {
+        for (int k = 0; k < 3; k++) {
+          result[i][j] += a[i][k] * b[k][j];
+        }
+      }
+    }
+    
+    return result;
+  }
+  
+  /// Apply 3x3 transformation matrix to a point
+  Offset _applyMatrix3Transform(Offset point, List<List<double>> matrix) {
+    final x = point.dx;
+    final y = point.dy;
+    
+    final transformedX = matrix[0][0] * x + matrix[0][1] * y + matrix[0][2];
+    final transformedY = matrix[1][0] * x + matrix[1][1] * y + matrix[1][2];
+    final w = matrix[2][0] * x + matrix[2][1] * y + matrix[2][2];
+    
+    // Handle homogeneous coordinates
+    if (w != 0 && w != 1.0) {
+      return Offset(transformedX / w, transformedY / w);
+    }
+    
+    return Offset(transformedX, transformedY);
+  }
+  
+  /// Get bounding rectangle from points
+  Rect _boundingRect(List<Offset> points) {
+    if (points.isEmpty) return Rect.zero;
+    
+    double minX = points.first.dx, maxX = points.first.dx;
+    double minY = points.first.dy, maxY = points.first.dy;
+    
+    for (final point in points) {
+      if (point.dx < minX) minX = point.dx;
+      if (point.dx > maxX) maxX = point.dx;
+      if (point.dy < minY) minY = point.dy;
+      if (point.dy > maxY) maxY = point.dy;
+    }
+    
+    return Rect.fromLTRB(minX, minY, maxX, maxY);
   }
   
   /// Order quad points counter-clockwise starting from top-left
