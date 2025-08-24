@@ -13,6 +13,21 @@ class BallPainter extends CustomPainter {
     required this.displaySize,
   });
 
+  String _getClassLabel(int classId) {
+    switch (classId) {
+      case 0:
+        return 'Black';
+      case 1:
+        return 'Cue';
+      case 2:
+        return 'Solid';
+      case 3:
+        return 'Stripe';
+      default:
+        return 'Ball';
+    }
+  }
+
   @override
   void paint(Canvas canvas, Size size) {
     if (detections.isEmpty) return;
@@ -50,13 +65,16 @@ class BallPainter extends CustomPainter {
       // Draw bounding box
       canvas.drawRect(transformedBox, boxPaint);
 
-      // Draw confidence text
-      final confidenceText = '${(detection.confidence * 100).toStringAsFixed(1)}%';
+      // Draw class and confidence text
+      final classLabel = _getClassLabel(detection.classId);
+      final confidencePercent = (detection.confidence * 100).toStringAsFixed(1);
+      final labelText = '$classLabel ${confidencePercent}%';
+      
       final textSpan = TextSpan(
-        text: confidenceText,
+        text: labelText,
         style: const TextStyle(
           color: Colors.white,
-          fontSize: 12,
+          fontSize: 11,
           fontWeight: FontWeight.bold,
         ),
       );
