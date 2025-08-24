@@ -65,6 +65,7 @@ flutter:
   assets:
     - assets/detection_model.onnx
     - assets/images/P_20250718_203819.jpg
+    - assets/images/shotstudio_table_felt_only.png
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images

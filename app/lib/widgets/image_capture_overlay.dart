@@ -2,29 +2,55 @@ import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
-import '../controllers/ball_detection_controller.dart';
 import '../detection_box.dart';
+import '../services/table_detection_result.dart';
 import 'ball_painter.dart';
+import 'table_painter.dart';
 
 class ImageCaptureOverlay extends StatelessWidget {
   final Uint8List? capturedImageBytes;
   final List<Detection> ballDetections;
   final ui.Size? capturedImageSize;
+  final TableDetectionResult? tableDetectionResult;
   final bool isProcessingBalls;
   final String statusText;
   final VoidCallback onRetake;
   final VoidCallback onAnalyze;
+  final VoidCallback? onAccept;
 
   const ImageCaptureOverlay({
     super.key,
     required this.capturedImageBytes,
     required this.ballDetections,
     required this.capturedImageSize,
+    this.tableDetectionResult,
     required this.isProcessingBalls,
     required this.statusText,
     required this.onRetake,
     required this.onAnalyze,
+    this.onAccept,
   });
+
+  List<Offset> _transformQuadPoints(List<Offset> points, ui.Size imageSize, Size displaySize) {
+    // Transform coordinates from image space to display space
+    final scaleX = displaySize.width / imageSize.width;
+    final scaleY = displaySize.height / imageSize.height;
+    
+    // Use the same scaling approach as BallPainter
+    final scale = scaleX < scaleY ? scaleX : scaleY;
+    final scaledWidth = imageSize.width * scale;
+    final scaledHeight = imageSize.height * scale;
+    
+    final offsetX = (displaySize.width - scaledWidth) / 2;
+    final offsetY = (displaySize.height - scaledHeight) / 2;
+    
+    return points.map((point) {
+      return Offset(
+        point.dx * scale + offsetX,
+        point.dy * scale + offsetY,
+      );
+    }).toList();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -45,17 +71,35 @@ class ImageCaptureOverlay extends StatelessWidget {
                           fit: BoxFit.contain,
                         ),
                       ),
-                      // Ball detection overlay
-                      if (ballDetections.isNotEmpty && capturedImageSize != null)
+                      // Detection overlays (both balls and table)
+                      if (capturedImageSize != null && (ballDetections.isNotEmpty || tableDetectionResult != null))
                         LayoutBuilder(
                           builder: (context, constraints) {
-                            return CustomPaint(
-                              size: constraints.biggest,
-                              painter: BallPainter(
-                                detections: ballDetections,
-                                imageSize: capturedImageSize!,
-                                displaySize: constraints.biggest,
-                              ),
+                            return Stack(
+                              children: [
+                                // Table quad overlay (drawn first, underneath balls)
+                                if (tableDetectionResult != null)
+                                  CustomPaint(
+                                    size: constraints.biggest,
+                                    painter: TablePainter(
+                                      quadPoints: _transformQuadPoints(
+                                        tableDetectionResult!.points,
+                                        capturedImageSize!,
+                                        constraints.biggest,
+                                      ),
+                                    ),
+                                  ),
+                                // Ball detection overlay (drawn on top)
+                                if (ballDetections.isNotEmpty)
+                                  CustomPaint(
+                                    size: constraints.biggest,
+                                    painter: BallPainter(
+                                      detections: ballDetections,
+                                      imageSize: capturedImageSize!,
+                                      displaySize: constraints.biggest,
+                                    ),
+                                  ),
+                              ],
                             );
                           },
                         ),
@@ -108,7 +152,11 @@ class ImageCaptureOverlay extends StatelessWidget {
                         child: const Text('Retake'),
                       ),
                       ElevatedButton(
-                        onPressed: isProcessingBalls ? null : onAnalyze,
+                        onPressed: isProcessingBalls 
+                            ? null 
+                            : ballDetections.isNotEmpty && onAccept != null
+                                ? onAccept
+                                : onAnalyze,
                         child: isProcessingBalls 
                             ? const SizedBox(
                                 width: 16,
@@ -118,7 +166,7 @@ class ImageCaptureOverlay extends StatelessWidget {
                                   valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
                                 ),
                               )
-                            : const Text('Analyze'),
+                            : Text(ballDetections.isNotEmpty ? 'Accept' : 'Analyze'),
                       ),
                     ],
                   ),

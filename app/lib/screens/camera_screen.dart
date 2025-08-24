@@ -6,6 +6,7 @@ import '../controllers/table_detection_controller.dart';
 import '../controllers/ball_detection_controller.dart';
 import '../widgets/image_capture_overlay.dart';
 import '../widgets/camera_preview_widget.dart';
+import 'ball_results_screen.dart';
 
 class CameraScreen extends StatefulWidget {
   const CameraScreen({super.key});
@@ -51,6 +52,17 @@ class CameraScreenState extends State<CameraScreen> {
     if (imageBytes != null) {
       _ballDetectionController.processBallDetection(imageBytes);
     }
+  }
+
+  void _onAcceptResults() {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => BallResultsScreen(
+          ballDetections: _ballDetectionController.ballDetections,
+          capturedImageSize: _ballDetectionController.capturedImageSize,
+        ),
+      ),
+    );
   }
 
   @override
@@ -100,12 +112,14 @@ class CameraScreenState extends State<CameraScreen> {
                       capturedImageBytes: _cameraController.capturedImageBytes,
                       ballDetections: _ballDetectionController.ballDetections,
                       capturedImageSize: _ballDetectionController.capturedImageSize,
+                      tableDetectionResult: _ballDetectionController.tableDetectionResult,
                       isProcessingBalls: _ballDetectionController.isProcessingBalls,
                       statusText: _ballDetectionController.buildCaptureStatusText(
                         _cameraController.capturedImageBytes,
                       ),
                       onRetake: _onClearImage,
                       onAnalyze: _onAnalyzeImage,
+                      onAccept: _onAcceptResults,
                     ),
                 ],
               );

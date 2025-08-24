@@ -1,7 +1,9 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:ffi' hide Size;
 import 'dart:io';
 import 'dart:isolate';
+import 'dart:typed_data';
 import 'dart:ui';
 
 import 'package:camerawesome/camerawesome_plugin.dart';
@@ -36,11 +38,17 @@ typedef DetectTableBgraC = Pointer<DetectionResult> Function(Pointer<Uint8> imag
 typedef DetectTableBgraDart = Pointer<DetectionResult> Function(Pointer<Uint8> imageBytes,
     int width, int height, int stride, int rotationDegrees, Pointer<Utf8> debugImagePath);
 
+typedef DetectTableRgbaC = Pointer<Utf8> Function(Pointer<Uint8> imageBytes, Int32 width,
+    Int32 height, Int32 channels, Int32 stride);
+typedef DetectTableRgbaDart = Pointer<Utf8> Function(Pointer<Uint8> imageBytes,
+    int width, int height, int channels, int stride);
+
 typedef FreeBgraDetectionResultC = Void Function(Pointer<DetectionResult> result);
 typedef FreeBgraDetectionResultDart = void Function(Pointer<DetectionResult> result);
 
 class TableDetectionService {
   late final DetectTableBgraDart detectTableBgra;
+  late final DetectTableRgbaDart detectTableRgba;
   late final FreeBgraDetectionResultDart freeBgraDetectionResult;
 
   final StreamController<TableDetectionResult> _detectionsController =
@@ -85,6 +93,9 @@ class TableDetectionService {
     detectTableBgra = dylib
         .lookup<NativeFunction<DetectTableBgraC>>('detect_table_bgra')
         .asFunction();
+    detectTableRgba = dylib
+        .lookup<NativeFunction<DetectTableRgbaC>>('detect_table_rgba')
+        .asFunction();
     freeBgraDetectionResult = dylib
         .lookup<NativeFunction<FreeBgraDetectionResultC>>('free_bgra_detection_result')
         .asFunction();
@@ -102,5 +113,50 @@ class TableDetectionService {
     }
     _isReady = false; // Close the gate
     _sendPort!.send(image);
+  }
+
+  Future<TableDetectionResult?> detectTableFromBytes(Uint8List imageBytes, int width, int height) async {
+    if (!_isInitialized) {
+      await initialize();
+    }
+
+    try {
+      // Allocate native memory
+      final Pointer<Uint8> nativeBytes = malloc<Uint8>(imageBytes.length);
+      final Uint8List nativeBytesList = nativeBytes.asTypedList(imageBytes.length);
+      nativeBytesList.setAll(0, imageBytes);
+
+      // Call native function (4 channels for RGBA, stride = width * 4)
+      final Pointer<Utf8> resultPtr = detectTableRgba(nativeBytes, width, height, 4, width * 4);
+      
+      // Free native memory immediately
+      malloc.free(nativeBytes);
+
+      if (resultPtr == nullptr) {
+        return null;
+      }
+
+      final String jsonResult = resultPtr.toDartString();
+      
+      // Parse JSON result
+      final Map<String, dynamic> parsed = json.decode(jsonResult);
+      if (parsed.containsKey('error')) {
+        print('Table detection error: ${parsed['error']}');
+        return null;
+      }
+
+      final List<dynamic> quadPointsJson = parsed['quad_points'] ?? [];
+      final List<Offset> quadPoints = quadPointsJson.map<Offset>((point) {
+        return Offset(point['x'].toDouble(), point['y'].toDouble());
+      }).toList();
+
+      return TableDetectionResult(
+        quadPoints,
+        Size(width.toDouble(), height.toDouble()),
+      );
+    } catch (e) {
+      print('Error in detectTableFromBytes: $e');
+      return null;
+    }
   }
 }
