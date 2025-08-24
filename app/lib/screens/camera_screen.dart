@@ -5,11 +5,14 @@ import 'dart:ui' as ui;
 import 'package:app/services/table_detection_result.dart';
 import 'package:camerawesome/camerawesome_plugin.dart';
 import 'package:flutter/material.dart' hide BoxPainter;
+import 'package:image/image.dart' as img;
 import '../services/ball_detection_service.dart';
 import '../services/table_detection_service.dart';
 
 import '../detection_box.dart';
 import '../widgets/table_painter.dart';
+import '../widgets/ball_painter.dart';
+import '../widgets/bullseye_painter.dart';
 
 class CameraScreen extends StatefulWidget {
   const CameraScreen({super.key});
@@ -22,7 +25,6 @@ class CameraScreenState extends State<CameraScreen> {
   final BallDetectionService _ballDetectionService = BallDetectionService();
   final TableDetectionService _tableDetectionService = TableDetectionService();
   StreamSubscription<TableDetectionResult>? _tableDetectionsSubscription;
-  List<Detection> _ballDetections = [];
   List<Offset> _quadPoints = [];
   ui.Size? _imageSize;
   double _fps = 0.0;
@@ -31,6 +33,14 @@ class CameraScreenState extends State<CameraScreen> {
   
   // Image capture state
   bool _showCaptureMessage = false;
+  Uint8List? _capturedImageBytes;
+  CameraState? _cameraState;
+  
+  // Ball detection state
+  List<Detection> _ballDetections = [];
+  bool _isProcessingBalls = false;
+  ui.Size? _capturedImageSize;
+  static const double _confidenceThreshold = 0.6; // Match native CONF_THRESH from tableizer.cpp
 
   @override
   void initState() {
@@ -42,11 +52,12 @@ class CameraScreenState extends State<CameraScreen> {
   void dispose() {
     _tableDetectionsSubscription?.cancel();
     _tableDetectionService.dispose();
+    _ballDetectionService.dispose();
     super.dispose();
   }
 
   Future<void> _initializeServices() async {
-    //await _ballDetectionService.initialize();
+    await _ballDetectionService.initialize();
     await _tableDetectionService.initialize();
     _lastFrameTime = DateTime.now();
 
@@ -73,19 +84,122 @@ class CameraScreenState extends State<CameraScreen> {
     });
   }
 
-  void _simulateCapture() {
-    setState(() {
-      _showCaptureMessage = true;
-    });
+  Future<void> _capturePhoto() async {
+    if (_cameraState == null) return;
     
-    // Auto-hide after 2 seconds
-    Timer(const Duration(seconds: 2), () {
-      if (mounted) {
-        setState(() {
-          _showCaptureMessage = false;
-        });
-      }
+    // Use the correct CamerAwesome photo capture API
+    _cameraState!.when(
+      onPhotoMode: (photoState) async {
+        await photoState.takePhoto();
+      },
+      onVideoMode: (videoState) {
+        // Switch to photo mode first, or show error
+        print('Switch to photo mode to capture image');
+      },
+      onVideoRecordingMode: (videoRecordingState) {
+        // Switch to photo mode first, or show error  
+        print('Stop recording and switch to photo mode to capture image');
+      },
+    );
+  }
+
+  void _onMediaCaptured(CaptureRequest request) async {
+    request.when(
+      single: (singleRequest) async {
+        final file = singleRequest.file;
+        if (file != null) {
+          final imageBytes = await file.readAsBytes();
+          setState(() {
+            _capturedImageBytes = imageBytes;
+            _showCaptureMessage = true;
+          });
+          
+          // Don't auto-hide - let user control with buttons
+        }
+      },
+      multiple: (multipleRequest) {
+        // Handle multiple camera capture if needed
+        print('Multiple camera capture not implemented');
+      },
+    );
+  }
+
+  void _clearCapturedImage() {
+    setState(() {
+      _capturedImageBytes = null;
+      _showCaptureMessage = false;
+      _ballDetections.clear();
+      _capturedImageSize = null;
     });
+  }
+
+  Future<void> _processBallDetection() async {
+    if (_capturedImageBytes == null || _isProcessingBalls) return;
+    
+    setState(() {
+      _isProcessingBalls = true;
+      _ballDetections.clear();
+    });
+
+    try {
+      // Step 1: Decode JPEG bytes to Image
+      final img.Image? decodedImage = img.decodeImage(_capturedImageBytes!);
+      if (decodedImage == null) {
+        throw Exception('Failed to decode captured image');
+      }
+
+      // Step 2: Convert to RGBA format (following test pattern)
+      final img.Image rgbaImage = decodedImage.convert(numChannels: 4);
+      final Uint8List rgbaBytes = rgbaImage.getBytes(order: img.ChannelOrder.rgba);
+
+      // Step 3: Store image dimensions for coordinate transformation
+      setState(() {
+        _capturedImageSize = ui.Size(
+          rgbaImage.width.toDouble(),
+          rgbaImage.height.toDouble(),
+        );
+      });
+
+      // Step 4: Run ball detection (following test pattern)
+      final detections = await _ballDetectionService.detectFromByteBuffer(
+        rgbaBytes,
+        rgbaImage.width,
+        rgbaImage.height,
+      );
+
+      // Filter detections by confidence (extra safety, native code should already filter)
+      final filteredDetections = detections
+          .where((detection) => detection.confidence >= _confidenceThreshold)
+          .toList();
+
+      setState(() {
+        _ballDetections = filteredDetections;
+        _isProcessingBalls = false;
+      });
+
+      print('Ball detection completed: ${filteredDetections.length} balls detected (${detections.length} total, filtered by confidence >= $_confidenceThreshold)');
+    } catch (e) {
+      print('Ball detection failed: $e');
+      setState(() {
+        _isProcessingBalls = false;
+      });
+    }
+  }
+
+  String _buildCaptureStatusText() {
+    if (_capturedImageBytes == null) {
+      return 'Image Captured!\n(Ready for ball detection)';
+    }
+    
+    final sizeKB = (_capturedImageBytes!.length / 1024).toStringAsFixed(1);
+    
+    if (_isProcessingBalls) {
+      return 'Processing Image...\n(${sizeKB}KB - Detecting balls)';
+    } else if (_ballDetections.isNotEmpty) {
+      return 'Detection Complete!\n(${_ballDetections.length} balls found - ${sizeKB}KB)';
+    } else {
+      return 'Image Captured!\n(${sizeKB}KB - Ready for analysis)';
+    }
   }
 
   @override
@@ -107,7 +221,15 @@ class CameraScreenState extends State<CameraScreen> {
           androidOptions: const AndroidAnalysisOptions.bgra8888(width: 1280),
           maxFramesPerSecond: 30,
         ),
+        onMediaCaptureEvent: (event) {
+          if (event.status == MediaCaptureStatus.success && event.isPicture) {
+            _onMediaCaptured(event.captureRequest);
+          } else if (event.status == MediaCaptureStatus.failure) {
+            print('Photo capture failed: ${event.exception}');
+          }
+        },
         builder: (cameraState, preview) {
+          _cameraState = cameraState;
           return Stack(
             fit: StackFit.expand,
             children: [
@@ -151,28 +273,113 @@ class CameraScreenState extends State<CameraScreen> {
               // --- Capture Message Overlay ---
               if (_showCaptureMessage)
                 Container(
-                  color: Colors.black54,
-                  child: const Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(
-                          Icons.photo_camera,
-                          size: 80,
-                          color: Colors.white,
+                  color: Colors.black87,
+                  child: Column(
+                    children: [
+                      // Captured image display area
+                      Expanded(
+                        child: _capturedImageBytes != null
+                            ? Stack(
+                                fit: StackFit.expand,
+                                children: [
+                                  // Display captured image
+                                  Center(
+                                    child: Image.memory(
+                                      _capturedImageBytes!,
+                                      fit: BoxFit.contain,
+                                    ),
+                                  ),
+                                  // Ball detection overlay
+                                  if (_ballDetections.isNotEmpty && _capturedImageSize != null)
+                                    LayoutBuilder(
+                                      builder: (context, constraints) {
+                                        return CustomPaint(
+                                          size: constraints.biggest,
+                                          painter: BallPainter(
+                                            detections: _ballDetections,
+                                            imageSize: _capturedImageSize!,
+                                            displaySize: constraints.biggest,
+                                          ),
+                                        );
+                                      },
+                                    ),
+                                ],
+                              )
+                            : Center(
+                                child: Column(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    const Icon(
+                                      Icons.photo_camera,
+                                      size: 80,
+                                      color: Colors.white,
+                                    ),
+                                    const SizedBox(height: 16),
+                                    Text(
+                                      _buildCaptureStatusText(),
+                                      textAlign: TextAlign.center,
+                                      style: TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 18,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                      ),
+                      // Status and controls area
+                      Container(
+                        padding: const EdgeInsets.all(16.0),
+                        child: Column(
+                          children: [
+                            if (_capturedImageBytes != null) ...[
+                              Text(
+                                _buildCaptureStatusText(),
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                              const SizedBox(height: 16),
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                                children: [
+                                  ElevatedButton(
+                                    onPressed: _clearCapturedImage,
+                                    child: const Text('Retake'),
+                                  ),
+                                  ElevatedButton(
+                                    onPressed: _isProcessingBalls ? null : _processBallDetection,
+                                    child: _isProcessingBalls 
+                                        ? const SizedBox(
+                                            width: 16,
+                                            height: 16,
+                                            child: CircularProgressIndicator(
+                                              strokeWidth: 2,
+                                              valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                                            ),
+                                          )
+                                        : const Text('Analyze'),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ],
                         ),
-                        SizedBox(height: 16),
-                        Text(
-                          'Image Captured!\n(Ready for ball detection)',
-                          textAlign: TextAlign.center,
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ],
-                    ),
+                      ),
+                    ],
+                  ),
+                ),
+
+              // --- Bullseye Reticule (Center) ---
+              if (!_showCaptureMessage)
+                Center(
+                  child: CustomPaint(
+                    size: const Size(40, 40),
+                    painter: BullseyePainter(),
                   ),
                 ),
 
@@ -193,7 +400,7 @@ class CameraScreenState extends State<CameraScreen> {
         },
       ),
       floatingActionButton: FloatingActionButton(
-        onPressed: _simulateCapture,
+        onPressed: _capturePhoto,
         tooltip: 'Capture Image',
         child: const Icon(Icons.camera_alt),
       ),
