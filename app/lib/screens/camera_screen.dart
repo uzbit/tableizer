@@ -60,6 +60,7 @@ class CameraScreenState extends State<CameraScreen> {
         builder: (context) => BallResultsScreen(
           ballDetections: _ballDetectionController.ballDetections,
           capturedImageSize: _ballDetectionController.capturedImageSize,
+          tableDetectionResult: _ballDetectionController.tableDetectionResult,
         ),
       ),
     );

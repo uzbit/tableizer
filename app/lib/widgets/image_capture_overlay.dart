@@ -17,6 +17,7 @@ class ImageCaptureOverlay extends StatelessWidget {
   final VoidCallback onRetake;
   final VoidCallback onAnalyze;
   final VoidCallback? onAccept;
+  final VoidCallback? onClose;
 
   const ImageCaptureOverlay({
     super.key,
@@ -29,6 +30,7 @@ class ImageCaptureOverlay extends StatelessWidget {
     required this.onRetake,
     required this.onAnalyze,
     this.onAccept,
+    this.onClose,
   });
 
   List<Offset> _transformQuadPoints(List<Offset> points, ui.Size imageSize, Size displaySize) {

@@ -1,16 +1,19 @@
 import 'package:flutter/material.dart';
 import 'dart:ui' as ui;
 import '../detection_box.dart';
+import '../services/table_detection_result.dart';
 import '../widgets/table_ball_painter.dart';
 
 class BallResultsScreen extends StatelessWidget {
   final List<Detection> ballDetections;
   final ui.Size? capturedImageSize;
+  final TableDetectionResult? tableDetectionResult;
 
   const BallResultsScreen({
     super.key,
     required this.ballDetections,
     this.capturedImageSize,
+    this.tableDetectionResult,
   });
 
   @override
@@ -60,6 +63,7 @@ class BallResultsScreen extends StatelessWidget {
                         detections: ballDetections,
                         capturedImageSize: capturedImageSize,
                         tableDisplaySize: Size(tableWidth, tableHeight),
+                        tableDetectionResult: tableDetectionResult,
                       ),
                     ),
                   ),
@@ -67,76 +71,6 @@ class BallResultsScreen extends StatelessWidget {
               },
             ),
           
-          // Bottom panel with ball list
-          Align(
-            alignment: Alignment.bottomCenter,
-            child: Container(
-              height: 150,
-              decoration: BoxDecoration(
-                color: Colors.black.withOpacity(0.8),
-                borderRadius: const BorderRadius.only(
-                  topLeft: Radius.circular(16),
-                  topRight: Radius.circular(16),
-                ),
-              ),
-              child: Column(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(16),
-                    child: Text(
-                      'Detected Balls',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-                  Expanded(
-                    child: ListView.builder(
-                      scrollDirection: Axis.horizontal,
-                      padding: const EdgeInsets.symmetric(horizontal: 16),
-                      itemCount: ballDetections.length,
-                      itemBuilder: (context, index) {
-                        final detection = ballDetections[index];
-                        return Container(
-                          margin: const EdgeInsets.only(right: 12),
-                          padding: const EdgeInsets.all(8),
-                          decoration: BoxDecoration(
-                            color: Colors.green.withOpacity(0.2),
-                            border: Border.all(color: Colors.green),
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Text(
-                                _getClassLabel(detection.classId),
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                '${(detection.confidence * 100).toStringAsFixed(1)}%',
-                                style: const TextStyle(
-                                  color: Colors.white70,
-                                  fontSize: 12,
-                                ),
-                              ),
-                            ],
-                          ),
-                        );
-                      },
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                ],
-              ),
-            ),
-          ),
         ],
       ),
     );

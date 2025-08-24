@@ -6,7 +6,7 @@
 #include <vector>
 
 #define DEBUG_POINT std::cout << "Reached " << __FILE__ << ":" << __LINE__ << std::endl;
-#define LOCAL_BUILD false
+#define LOCAL_BUILD true
 
 // Conditional logging headers and macros
 #if !LOCAL_BUILD
