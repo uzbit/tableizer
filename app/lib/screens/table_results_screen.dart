@@ -3,13 +3,14 @@ import 'dart:ui' as ui;
 import '../detection_box.dart';
 import '../services/table_detection_result.dart';
 import '../widgets/table_ball_painter.dart';
+import 'settings_screen.dart';
 
-class BallResultsScreen extends StatelessWidget {
+class TableResultsScreen extends StatelessWidget {
   final List<Detection> ballDetections;
   final ui.Size? capturedImageSize;
   final TableDetectionResult? tableDetectionResult;
 
-  const BallResultsScreen({
+  const TableResultsScreen({
     super.key,
     required this.ballDetections,
     this.capturedImageSize,
@@ -20,8 +21,20 @@ class BallResultsScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text('Ball Analysis Results (${ballDetections.length} balls)'),
+        title: Text(_buildTitle()),
         backgroundColor: Colors.green.shade800,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.settings),
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (context) => const SettingsScreen(),
+                ),
+              );
+            },
+          ),
+        ],
       ),
       body: Stack(
         fit: StackFit.expand,
@@ -74,6 +87,13 @@ class BallResultsScreen extends StatelessWidget {
         ],
       ),
     );
+  }
+
+  String _buildTitle() {
+    int stripeCount = ballDetections.where((d) => d.classId == 3).length;
+    int solidCount = ballDetections.where((d) => d.classId == 2).length;
+    
+    return 'Tableized - $stripeCount stripes, $solidCount solids';
   }
 
   String _getClassLabel(int classId) {

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import '../detection_box.dart';
 import '../services/coordinate_transformer.dart';
 import '../services/table_detection_result.dart';
+import '../services/settings_service.dart';
 
 class TableBallPainter extends CustomPainter {
   final List<Detection> detections;
@@ -70,7 +71,7 @@ class TableBallPainter extends CustomPainter {
     // Check if we need rotation based on quad orientation
     final topLength = _distance(orderedQuad[0], orderedQuad[1]);
     final rightLength = _distance(orderedQuad[1], orderedQuad[2]);
-    final needsRotation = topLength > rightLength * 1.25;
+    final needsRotation = topLength > rightLength * 1.5;
     
     print('Quad analysis: topLength=$topLength, rightLength=$rightLength, needsRotation=$needsRotation');
     
@@ -284,7 +285,14 @@ class TableBallPainter extends CustomPainter {
   void _drawBallAtPosition(Canvas canvas, Detection detection, Offset position) {
     // Ball colors based on class
     final ballColor = _getBallColor(detection.classId);
-    final ballRadius = 12.0;
+    
+    // Calculate ball radius based on table size setting
+    final settingsService = SettingsService();
+    final ballRadius = BallScaling.calculateBallRadius(
+      tableDisplaySize.width, 
+      tableDisplaySize.height, 
+      settingsService.tableSizeInches
+    );
 
     // Draw ball shadow
     final shadowPaint = Paint()
@@ -320,10 +328,11 @@ class TableBallPainter extends CustomPainter {
       outlinePaint,
     );
 
-    // Draw class label
+    // Draw class label with scaled text size
+    final textSize = BallScaling.calculateTextSize(ballRadius);
     final textStyle = TextStyle(
       color: Colors.white,
-      fontSize: 10,
+      fontSize: math.max(textSize, 8.0), // Minimum readable text size
       fontWeight: FontWeight.bold,
       shadows: [
         Shadow(

@@ -75,7 +75,10 @@ class BallDetectionController extends ChangeNotifier {
           .where((detection) => detection.confidence >= _confidenceThreshold)
           .toList();
 
-      _ballDetections = filteredDetections;
+      // Apply ball class corrections
+      final correctedDetections = _applyBallClassCorrections(filteredDetections);
+
+      _ballDetections = correctedDetections;
       _tableDetectionResult = tableResult;
       _isProcessingBalls = false;
       notifyListeners();
@@ -114,6 +117,63 @@ class BallDetectionController extends ChangeNotifier {
     } else {
       return 'Image Captured!\n(${sizeKB}KB - Ready for analysis)';
     }
+  }
+
+  /// Apply ball class corrections:
+  /// - Keep only highest confidence cue ball (classId 1), convert others to stripes (classId 3)
+  /// - Keep only highest confidence black ball (classId 0), convert others to solids (classId 2)
+  List<Detection> _applyBallClassCorrections(List<Detection> detections) {
+    final correctedDetections = <Detection>[];
+    
+    // Find highest confidence cue ball (classId 1)
+    Detection? bestCue;
+    final cueDetections = detections.where((d) => d.classId == 1).toList();
+    if (cueDetections.isNotEmpty) {
+      bestCue = cueDetections.reduce((a, b) => a.confidence > b.confidence ? a : b);
+    }
+    
+    // Find highest confidence black ball (classId 0)  
+    Detection? bestBlack;
+    final blackDetections = detections.where((d) => d.classId == 0).toList();
+    if (blackDetections.isNotEmpty) {
+      bestBlack = blackDetections.reduce((a, b) => a.confidence > b.confidence ? a : b);
+    }
+    
+    // Process all detections
+    for (final detection in detections) {
+      if (detection.classId == 1) { // Cue ball
+        if (detection == bestCue) {
+          correctedDetections.add(detection); // Keep best cue
+        } else {
+          // Convert other cues to stripes
+          correctedDetections.add(Detection(
+            centerX: detection.centerX,
+            centerY: detection.centerY,
+            box: detection.box,
+            confidence: detection.confidence,
+            classId: 3, // Change to stripe
+          ));
+        }
+      } else if (detection.classId == 0) { // Black ball
+        if (detection == bestBlack) {
+          correctedDetections.add(detection); // Keep best black
+        } else {
+          // Convert other blacks to solids
+          correctedDetections.add(Detection(
+            centerX: detection.centerX,
+            centerY: detection.centerY,
+            box: detection.box,
+            confidence: detection.confidence,
+            classId: 2, // Change to solid
+          ));
+        }
+      } else {
+        // Keep other ball types unchanged
+        correctedDetections.add(detection);
+      }
+    }
+    
+    return correctedDetections;
   }
 
   @override

@@ -6,7 +6,7 @@ import '../controllers/table_detection_controller.dart';
 import '../controllers/ball_detection_controller.dart';
 import '../widgets/image_capture_overlay.dart';
 import '../widgets/camera_preview_widget.dart';
-import 'ball_results_screen.dart';
+import 'table_results_screen.dart';
 
 class CameraScreen extends StatefulWidget {
   const CameraScreen({super.key});
@@ -57,7 +57,7 @@ class CameraScreenState extends State<CameraScreen> {
   void _onAcceptResults() {
     Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (context) => BallResultsScreen(
+        builder: (context) => TableResultsScreen(
           ballDetections: _ballDetectionController.ballDetections,
           capturedImageSize: _ballDetectionController.capturedImageSize,
           tableDetectionResult: _ballDetectionController.tableDetectionResult,
@@ -131,9 +131,15 @@ class CameraScreenState extends State<CameraScreen> {
       floatingActionButton: AnimatedBuilder(
         animation: _cameraController,
         builder: (context, child) {
+          // Hide FAB when image is captured (analysis screen is showing)
+          if (_cameraController.capturedImageBytes != null) {
+            return const SizedBox.shrink();
+          }
+          
           return FloatingActionButton(
             onPressed: _cameraController.capturePhoto,
             tooltip: 'Capture Image',
+            backgroundColor: const Color.fromRGBO(118, 180, 136, 1.0),
             child: const Icon(Icons.camera_alt),
           );
         },
