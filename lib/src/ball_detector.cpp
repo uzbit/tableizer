@@ -2,10 +2,10 @@
 
 #include "utilities.hpp"
 
-#if !LOCAL_BUILD
-#include <onnxruntime/core/session/onnxruntime_cxx_api.h>
+#if defined(PLATFORM_ANDROID)
+#include <core/session/onnxruntime_cxx_api.h>
 #else
-#include <onnxruntime/onnxruntime_cxx_api.h>
+#include <onnxruntime_cxx_api.h>
 #endif
 
 #include <opencv2/dnn/dnn.hpp>

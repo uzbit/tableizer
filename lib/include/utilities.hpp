@@ -6,14 +6,33 @@
 #include <vector>
 
 #define DEBUG_POINT std::cout << "Reached " << __FILE__ << ":" << __LINE__ << std::endl;
-#define LOCAL_BUILD true
+
+// Platform detection macros
+#if defined(__ANDROID__)
+    #define PLATFORM_ANDROID 1
+#elif defined(__APPLE__)
+    #include <TargetConditionals.h>
+    #if TARGET_OS_IPHONE
+        #define PLATFORM_IOS 1
+    #else
+        #define PLATFORM_MACOS 1
+    #endif
+#elif defined(_WIN32) || defined(_WIN64)
+    #define PLATFORM_WINDOWS 1
+#else
+    #define PLATFORM_LINUX 1
+#endif
 
 // Conditional logging headers and macros
-#if !LOCAL_BUILD
+#ifdef PLATFORM_ANDROID
 #include <android/log.h>
 #define LOG_TAG "tableizer_native"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
+#elif defined(PLATFORM_IOS)
+#include <os/log.h>
+#define LOGI(...) os_log(OS_LOG_DEFAULT, __VA_ARGS__)
+#define LOGE(...) os_log_error(OS_LOG_DEFAULT, __VA_ARGS__)
 #else
 #include <cstdio>
 #define LOGI(...)            \

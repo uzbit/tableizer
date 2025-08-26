@@ -35,13 +35,16 @@ class BallDetectionService {
     await _loadLibrary();
 
     final modelPath = await _copyAssetToFile('assets/detection_model.onnx');
+    print('Ball detector model path: $modelPath');
     final pathPtr = modelPath.toNativeUtf8();
     _detector = _initializeDetector(pathPtr);
     calloc.free(pathPtr);
 
     if (_detector == nullptr) {
+      print('ERROR: initialize_detector returned nullptr');
       throw StateError('Failed to create detector');
     }
+    print('Ball detector initialized successfully');
   }
 
   Future<void> dispose() async {
@@ -89,7 +92,9 @@ class BallDetectionService {
   Future<void> _loadLibrary() async {
     final dylib = Platform.isAndroid
         ? DynamicLibrary.open('libtableizer_lib.so')
-        : DynamicLibrary.process();
+        : Platform.isIOS
+            ? DynamicLibrary.open('libtableizer_lib.dylib')
+            : DynamicLibrary.process();
 
     _initializeDetector = dylib
         .lookup<NativeFunction<InitializeDetectorC>>('initialize_detector')

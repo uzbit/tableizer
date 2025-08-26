@@ -88,7 +88,9 @@ class TableDetectionService {
   void _loadLibrary() {
     final dylib = Platform.isAndroid
         ? DynamicLibrary.open('libtableizer_lib.so')
-        : DynamicLibrary.process();
+        : Platform.isIOS
+            ? DynamicLibrary.open('libtableizer_lib.dylib')
+            : DynamicLibrary.process();
 
     detectTableBgra = dylib
         .lookup<NativeFunction<DetectTableBgraC>>('detect_table_bgra')

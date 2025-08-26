@@ -45,10 +45,22 @@ if(BUILD_SHARED_LIB)
         # set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -march=armv8-a")
     elseif(IOS)
         message(STATUS "Configuring for iOS")
-        # Add logic for iOS build (e.g., find_package or manual paths)
-        if(NOT DEFINED ONNXRUNTIME_INCLUDE_DIR OR NOT DEFINED ONNXRUNTIME_LIBRARY_PATH)
-            message(FATAL_ERROR "For iOS builds, you must define ONNXRUNTIME_INCLUDE_DIR and ONNXRUNTIME_LIBRARY_PATH")
+        
+        # Use locally built OpenCV static libraries
+        set(OpenCV_DIR "${CMAKE_CURRENT_SOURCE_DIR}/libs/opencv/build-sim")
+        find_package(OpenCV REQUIRED COMPONENTS core imgproc dnn imgcodecs photo features2d video calib3d)
+        
+        # Use CocoaPods-installed ONNX Runtime
+        if(NOT DEFINED IOS_PODS_ROOT)
+            set(IOS_PODS_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../app/ios/Pods")
         endif()
+        
+        set(ONNXRUNTIME_INCLUDE_DIR "${IOS_PODS_ROOT}/onnxruntime-mobile-c/Headers")
+        set(ONNXRUNTIME_XCFRAMEWORK_PATH "${IOS_PODS_ROOT}/onnxruntime-mobile-c/onnxruntime.xcframework")
+        
+        message(STATUS "Using OpenCV from: ${OpenCV_DIR}")
+        message(STATUS "Using ONNX Runtime from CocoaPods at: ${ONNXRUNTIME_INCLUDE_DIR}")
+        message(STATUS "ONNX Runtime XCFramework: ${ONNXRUNTIME_XCFRAMEWORK_PATH}")
     else()
         message(STATUS "Configuring for local library build (e.g., Linux/Windows)")
         set(ONNXRuntime_ROOT "/opt/homebrew") # Local dev path
@@ -72,11 +84,19 @@ if(BUILD_SHARED_LIB)
         ${OpenCV_INCLUDE_DIRS}
         ${ONNXRUNTIME_INCLUDE_DIR}
     )
-    target_link_libraries(tableizer_lib
-        ${OpenCV_LIBS}
-        ${ONNXRUNTIME_LIBRARY_PATH}
-        $<$<PLATFORM_ID:Android>:log>
-    )
+    if(IOS)
+        target_link_libraries(tableizer_lib
+            ${OpenCV_LIBS}
+            "${ONNXRUNTIME_XCFRAMEWORK_PATH}"
+            "-framework Foundation"
+        )
+    else()
+        target_link_libraries(tableizer_lib
+            ${OpenCV_LIBS}
+            ${ONNXRUNTIME_LIBRARY_PATH}
+            $<$<PLATFORM_ID:Android>:log>
+        )
+    endif()
 
 else()
     message(STATUS "Building executable for macOS")

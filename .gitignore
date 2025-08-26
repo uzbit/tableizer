@@ -8,6 +8,7 @@ __pycache__
 data/
 *.jpg
 *.jpeg
+app/ios/Podfile.lock
 
 # CMake build files
 [Bb]uild/

@@ -10,10 +10,10 @@
 #include "tableizer.hpp"
 #include "utilities.hpp"
 
-#if !LOCAL_BUILD
-#include <onnxruntime/core/session/onnxruntime_cxx_api.h>
+#if defined(PLATFORM_ANDROID)
+#include <core/session/onnxruntime_cxx_api.h>
 #else
-#include <onnxruntime/onnxruntime_cxx_api.h>
+#include <onnxruntime_cxx_api.h>
 #endif
 
 using namespace std;
@@ -26,7 +26,7 @@ using namespace cv;
 #define RESIZE 800  // not used
 
 int runTableizerForImage(Mat image, BallDetector& ballDetector) {
-#if LOCAL_BUILD
+#if defined(LOCAL_BUILD) && (defined(PLATFORM_MACOS) || defined(PLATFORM_LINUX) || defined(PLATFORM_WINDOWS))
     imshow("Table", image);
     waitKey(0);
 
@@ -125,9 +125,12 @@ int runTableizerForImage(Mat image, BallDetector& ballDetector) {
 
     // 6. Draw predictions on the canonical table and shot-studio template
     // --------------------------------------------------------
+    cv::Mat shotStudio;
+#if defined(PLATFORM_MACOS) || defined(PLATFORM_LINUX) || defined(PLATFORM_WINDOWS)
     string studioPath =
         "/Users/uzbit/Documents/projects/tableizer/data/shotstudio_table_felt_only.png";
-    cv::Mat shotStudio = cv::imread(studioPath);
+    shotStudio = cv::imread(studioPath);
+#endif
     cv::Mat warpedOut = warpResult.warped.clone();  // copy for drawing
     const cv::Scalar textColor(255, 255, 255);      // white id
 

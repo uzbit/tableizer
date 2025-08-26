@@ -1,0 +1,66 @@
+PODS:
+  - camerawesome (0.0.1):
+    - Flutter
+  - Flutter (1.0.0)
+  - integration_test (0.0.1):
+    - Flutter
+  - onnxruntime-mobile-c (1.18.0)
+  - onnxruntime-mobile-objc (1.18.0):
+    - onnxruntime-mobile-objc/Core (= 1.18.0)
+  - onnxruntime-mobile-objc/Core (1.18.0):
+    - onnxruntime-mobile-c (= 1.18.0)
+  - package_info_plus (0.4.5):
+    - Flutter
+  - path_provider_foundation (0.0.1):
+    - Flutter
+    - FlutterMacOS
+  - permission_handler_apple (9.3.0):
+    - Flutter
+  - wakelock_plus (0.0.1):
+    - Flutter
+
+DEPENDENCIES:
+  - camerawesome (from `.symlinks/plugins/camerawesome/ios`)
+  - Flutter (from `Flutter`)
+  - integration_test (from `.symlinks/plugins/integration_test/ios`)
+  - onnxruntime-mobile-objc
+  - package_info_plus (from `.symlinks/plugins/package_info_plus/ios`)
+  - path_provider_foundation (from `.symlinks/plugins/path_provider_foundation/darwin`)
+  - permission_handler_apple (from `.symlinks/plugins/permission_handler_apple/ios`)
+  - wakelock_plus (from `.symlinks/plugins/wakelock_plus/ios`)
+
+SPEC REPOS:
+  trunk:
+    - onnxruntime-mobile-c
+    - onnxruntime-mobile-objc
+
+EXTERNAL SOURCES:
+  camerawesome:
+    :path: ".symlinks/plugins/camerawesome/ios"
+  Flutter:
+    :path: Flutter
+  integration_test:
+    :path: ".symlinks/plugins/integration_test/ios"
+  package_info_plus:
+    :path: ".symlinks/plugins/package_info_plus/ios"
+  path_provider_foundation:
+    :path: ".symlinks/plugins/path_provider_foundation/darwin"
+  permission_handler_apple:
+    :path: ".symlinks/plugins/permission_handler_apple/ios"
+  wakelock_plus:
+    :path: ".symlinks/plugins/wakelock_plus/ios"
+
+SPEC CHECKSUMS:
+  camerawesome: a961fa32dafc00d2f093d824311c84f849586b58
+  Flutter: e0871f40cf51350855a761d2e70bf5af5b9b5de7
+  integration_test: 4a889634ef21a45d28d50d622cf412dc6d9f586e
+  onnxruntime-mobile-c: 612e643a0717ffe35ef1b3e9c3d63a084a5c122b
+  onnxruntime-mobile-objc: f573466890bac314c136f18fcdcf97916fd14812
+  package_info_plus: af8e2ca6888548050f16fa2f1938db7b5a5df499
+  path_provider_foundation: 080d55be775b7414fd5a5ef3ac137b97b097e564
+  permission_handler_apple: 4ed2196e43d0651e8ff7ca3483a069d469701f2d
+  wakelock_plus: e29112ab3ef0b318e58cfa5c32326458be66b556
+
+PODFILE CHECKSUM: 824e98e4d7b2b562ee23b370b4d352cd567edb86
+
+COCOAPODS: 1.16.2
