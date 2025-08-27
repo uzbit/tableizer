@@ -29,6 +29,8 @@ struct BallDetector::Impl {
     Impl(const string& modelPath)
         : env(ORT_LOGGING_LEVEL_WARNING, "ball_detector"),
           session(env, modelPath.c_str(), Ort::SessionOptions{nullptr}) {
+        LOGI("ONNX session created successfully for model: %s", modelPath.c_str());
+        
         size_t num_input_nodes = session.GetInputCount();
         input_node_names_str.reserve(num_input_nodes);
         for (size_t i = 0; i < num_input_nodes; i++) {

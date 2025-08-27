@@ -55,8 +55,8 @@ if(BUILD_SHARED_LIB)
             set(IOS_PODS_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../app/ios/Pods")
         endif()
         
-        set(ONNXRUNTIME_INCLUDE_DIR "${IOS_PODS_ROOT}/onnxruntime-mobile-c/Headers")
-        set(ONNXRUNTIME_XCFRAMEWORK_PATH "${IOS_PODS_ROOT}/onnxruntime-mobile-c/onnxruntime.xcframework")
+        set(ONNXRUNTIME_INCLUDE_DIR "${IOS_PODS_ROOT}/onnxruntime-c/Headers")
+        set(ONNXRUNTIME_XCFRAMEWORK_PATH "${IOS_PODS_ROOT}/onnxruntime-c/onnxruntime.xcframework")
         
         message(STATUS "Using OpenCV from: ${OpenCV_DIR}")
         message(STATUS "Using ONNX Runtime from CocoaPods at: ${ONNXRUNTIME_INCLUDE_DIR}")

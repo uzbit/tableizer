@@ -231,9 +231,15 @@ extern "C" {
 
 void* initialize_detector(const char* model_path) {
     try {
-        return static_cast<void*>(new BallDetector(model_path));
+        LOGI("initialize_detector called with path: %s", model_path ? model_path : "NULL");
+        BallDetector* detector = new BallDetector(model_path);
+        LOGI("BallDetector created successfully");
+        return static_cast<void*>(detector);
     } catch (const std::exception& e) {
         LOGE("Error initializing detector: %s", e.what());
+        return nullptr;
+    } catch (...) {
+        LOGE("Unknown error initializing detector");
         return nullptr;
     }
 }

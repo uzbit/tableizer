@@ -32,8 +32,8 @@ target 'Runner' do
 
   flutter_install_all_ios_pods File.dirname(File.realpath(__FILE__))
   
-  # ONNX Runtime for iOS
-  pod 'onnxruntime-mobile-objc'
+  # ONNX Runtime for iOS - using full version instead of mobile
+  pod 'onnxruntime-c'
   target 'RunnerTests' do
     inherit! :search_paths
   end
