@@ -2,7 +2,7 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:vector_math/vector_math_64.dart' hide Colors;
-import '../detection_box.dart';
+import 'package:tableizer_detection/tableizer_detection.dart';
 
 /// Paints YOLO / detector boxes on top of a portrait camera preview.
 ///

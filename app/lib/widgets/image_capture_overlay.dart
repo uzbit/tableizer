@@ -2,8 +2,7 @@ import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
-import '../detection_box.dart';
-import '../services/table_detection_result.dart';
+import 'package:tableizer_detection/tableizer_detection.dart';
 import 'ball_painter.dart';
 import 'table_painter.dart';
 

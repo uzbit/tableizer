@@ -1,7 +1,6 @@
 import 'dart:ffi';
 import 'dart:io';
-import 'package:app/services/ball_detection_service.dart';
-import 'package:app/services/table_detection_service.dart';
+import 'package:tableizer_detection/tableizer_detection.dart';
 import 'package:ffi/ffi.dart';
 import 'package:image/image.dart' as img;
 
@@ -25,7 +24,7 @@ void main() {
     final detectionService = BallDetectionService();
     await detectionService.initialize();
 
-    final detections = await detectionService.detectFromByteBuffer(
+    final detections = await detectionService.detectBallsFromBytes(
         bytes, rgbaImage.width, rgbaImage.height);
     final int count = detections.length;
     print('Number of detections: $count');

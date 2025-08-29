@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import '../services/table_detection_service.dart';
+import 'package:tableizer_detection/tableizer_detection.dart';
 
 class TableScreen extends StatefulWidget {
   final TableDetectionService tableDetectionService;

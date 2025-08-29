@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'dart:ui' as ui;
-import '../detection_box.dart';
-import '../services/table_detection_result.dart';
+import 'package:tableizer_detection/tableizer_detection.dart';
 import '../widgets/table_ball_painter.dart';
 import 'settings_screen.dart';
 

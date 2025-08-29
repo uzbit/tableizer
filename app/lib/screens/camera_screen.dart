@@ -2,8 +2,7 @@ import 'package:camerawesome/camerawesome_plugin.dart';
 import 'package:flutter/material.dart';
 
 import '../controllers/camera_controller.dart';
-import '../controllers/table_detection_controller.dart';
-import '../controllers/ball_detection_controller.dart';
+import 'package:tableizer_detection/tableizer_detection.dart';
 import '../widgets/image_capture_overlay.dart';
 import '../widgets/camera_preview_widget.dart';
 import 'table_results_screen.dart';
@@ -52,7 +51,9 @@ class CameraScreenState extends State<CameraScreen> {
   void _onAnalyzeImage() {
     final imageBytes = _cameraController.capturedImageBytes;
     if (imageBytes != null) {
+      // Run both ball and table detection separately
       _ballDetectionController.processBallDetection(imageBytes);
+      _ballDetectionController.processTableDetection(imageBytes);
     }
   }
 

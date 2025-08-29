@@ -1,8 +1,7 @@
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
-import '../detection_box.dart';
-import '../services/table_detection_result.dart';
+import 'package:tableizer_detection/tableizer_detection.dart';
 import '../services/settings_service.dart';
 
 class TableBallPainter extends CustomPainter {

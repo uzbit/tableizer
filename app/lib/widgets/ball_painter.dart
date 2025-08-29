@@ -1,6 +1,6 @@
 import 'dart:ui';
 import 'package:flutter/material.dart';
-import '../detection_box.dart';
+import 'package:tableizer_detection/tableizer_detection.dart';
 
 class BallPainter extends CustomPainter {
   final List<Detection> detections;
