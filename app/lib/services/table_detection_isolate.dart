@@ -25,9 +25,13 @@ void tableDetectionIsolateEntry(List<dynamic> args) async {
   sendPort.send(receivePort.sendPort);
 
   // --- Isolate-local FFI setup ---
+  // This needs to be loaded in the isolate separately because
+  // it has it's own memory space.
   final dylib = Platform.isAndroid
       ? DynamicLibrary.open('libtableizer_lib.so')
-      : DynamicLibrary.process();
+      : Platform.isIOS
+          ? DynamicLibrary.open('libtableizer_lib.dylib')
+          : DynamicLibrary.process();
 
   final detectTableBgra = dylib
       .lookup<NativeFunction<DetectTableBgraC>>('detect_table_bgra')

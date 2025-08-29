@@ -1,13 +1,9 @@
 import 'dart:ffi' hide Size;
 import 'dart:io';
-import 'dart:isolate';
-import 'dart:convert';
-
 import 'package:ffi/ffi.dart';
 import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
-import 'package:image/image.dart' as img;
 import '../detection_box.dart';
 
 // --- FFI Signatures ---
@@ -105,11 +101,6 @@ class BallDetectionService {
     _releaseDetector = dylib
         .lookup<NativeFunction<ReleaseDetectorC>>('release_detector')
         .asFunction();
-
-    // C helper: void free_cstring(char*)
-    // _freeCString = dylib
-    //     .lookup<NativeFunction<Void Function(Pointer<Utf8>)>>('free_cstring')
-    //     .asFunction();
   }
 
   Future<String> _copyAssetToFile(String asset) async {
@@ -126,36 +117,3 @@ class BallDetectionService {
   }
 }
 
-
-//
-// void _detectionIsolate(Map<String, dynamic> context) {
-//   final detectorPtr = Pointer<Void>.fromAddress(context['detector_ptr']);
-//   final CameraImage image = context['camera_image'];
-//   final SendPort sendPort = context['send_port'];
-//
-//   final convertedImage = convertCameraImage(image);
-//
-//   final imageBytes = convertedImage.getBytes(order: img.ChannelOrder.rgba);
-//   if (convertedImage.lengthInBytes != imageBytes.lengthInBytes) {
-//     sendPort.send('{"error": "Image buffer size mismatch"}');
-//     return;
-//   }
-//
-//   final imageBytesPtr = calloc<Uint8>(convertedImage.lengthInBytes);
-//   imageBytesPtr.asTypedList(convertedImage.lengthInBytes).setAll(0, imageBytes);
-//
-//   final dylib = Platform.isAndroid
-//       ? DynamicLibrary.open("libtableizer_lib.so")
-//       : DynamicLibrary.process();
-//   final detectObjects = dylib
-//       .lookup<NativeFunction<DetectObjectsC>>('detect_objects')
-//       .asFunction<DetectObjectsDart>();
-//
-//   final resultPtr = detectObjects(
-//       detectorPtr, imageBytesPtr, convertedImage.width, convertedImage.height, 4);
-//   final resultJson = resultPtr.toDartString();
-//
-//   calloc.free(imageBytesPtr);
-//
-//   sendPort.send(resultJson);
-// }
