@@ -45,6 +45,8 @@ class CameraScreenState extends State<CameraScreen> {
   void _onClearImage() {
     _cameraController.clearCapturedImage();
     _ballDetectionController.clearDetections();
+    // Re-enable table detection when returning to live view
+    _tableDetectionController.setEnabled(true);
   }
 
   void _onAnalyzeImage() {
@@ -55,6 +57,9 @@ class CameraScreenState extends State<CameraScreen> {
   }
 
   void _onAcceptResults() {
+    // Disable table detection when navigating to results screen
+    _tableDetectionController.setEnabled(false);
+    
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (context) => TableResultsScreen(
@@ -63,7 +68,10 @@ class CameraScreenState extends State<CameraScreen> {
           tableDetectionResult: _ballDetectionController.tableDetectionResult,
         ),
       ),
-    );
+    ).then((_) {
+      // Re-enable table detection when returning from results screen
+      _tableDetectionController.setEnabled(true);
+    });
   }
 
   @override
@@ -85,6 +93,8 @@ class CameraScreenState extends State<CameraScreen> {
         ),
         onMediaCaptureEvent: (event) {
           if (event.status == MediaCaptureStatus.success && event.isPicture) {
+            // Disable table detection when switching to ball analysis mode
+            _tableDetectionController.setEnabled(false);
             _cameraController.onMediaCaptured(event.captureRequest);
           } else if (event.status == MediaCaptureStatus.failure) {
             print('Photo capture failed: ${event.exception}');

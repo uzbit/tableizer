@@ -4,6 +4,7 @@
 #include <cmath>
 #include <iostream>
 #include <numeric>
+#include <random>
 #include <vector>
 
 #include "utilities.hpp"
@@ -12,32 +13,70 @@ CellularTableDetector::CellularTableDetector(int resizeHeight, int cellSize, dou
     : resizeHeight(resizeHeight), cellSize(cellSize), deltaEThreshold(deltaEThreshold) {}
 
 Vec3f CellularTableDetector::getMedianLab(const Mat &labImg, const Rect &cellRect) {
-    Mat cell = labImg(cellRect).clone();  // Create a deep copy to ensure continuity
-    Mat cellReshaped = cell.reshape(1, cell.total());
+    // Use random sampling for much faster median calculation
+    const int SAMPLE_SIZE = 15;  // Sample SAMPLE_SIZE pixels instead of all pixels
 
-    vector<float> L, A, B;
-    L.reserve(cellReshaped.rows);
-    A.reserve(cellReshaped.rows);
-    B.reserve(cellReshaped.rows);
+    Mat cell = labImg(cellRect);
+    int totalPixels = cell.rows * cell.cols;
 
-    for (int i = 0; i < cellReshaped.rows; ++i) {
-        const Vec3f &v = cellReshaped.at<Vec3f>(i, 0);
-        L.push_back(v[0]);
-        A.push_back(v[1]);
-        B.push_back(v[2]);
-    }
-
-    if (L.empty()) {
+    if (totalPixels == 0) {
         return Vec3f(0, 0, 0);
     }
 
-    // Use nth_element to find the median, which is much faster than a full sort.
+    // If cell is very small, use all pixels
+    int sampleSize = min(SAMPLE_SIZE, totalPixels);
+
+    vector<float> L, A, B;
+    L.reserve(sampleSize);
+    A.reserve(sampleSize);
+    B.reserve(sampleSize);
+
+    // Use faster random sampling without creating full index array
+    static thread_local std::random_device rd;
+    static thread_local std::mt19937 gen(rd());
+
+    for (int i = 0; i < sampleSize; ++i) {
+        // Generate random pixel position directly
+        std::uniform_int_distribution<> dis(0, totalPixels - 1);
+        int idx = dis(gen);
+        int row = idx / cell.cols;
+        int col = idx % cell.cols;
+
+        const Vec3f &pixel = cell.at<Vec3f>(row, col);
+        L.push_back(pixel[0]);
+        A.push_back(pixel[1]);
+        B.push_back(pixel[2]);
+    }
+
+    // Find median of the sample
     size_t mid = L.size() / 2;
     nth_element(L.begin(), L.begin() + mid, L.end());
     nth_element(A.begin(), A.begin() + mid, A.end());
     nth_element(B.begin(), B.begin() + mid, B.end());
 
     return Vec3f(L[mid], A[mid], B[mid]);
+}
+
+void CellularTableDetector::precomputeLabCache(const Mat &labImg, int rows, int cols) {
+    // Initialize cache with proper dimensions
+    labCache.resize(rows);
+    for (int r = 0; r < rows; ++r) {
+        labCache[r].resize(cols);
+    }
+
+    // Precompute LAB values for all cells
+    for (int r = 0; r < rows; ++r) {
+        for (int c = 0; c < cols; ++c) {
+            int y1 = r * cellSize;
+            int x1 = c * cellSize;
+            int y2 = min(y1 + cellSize, labImg.rows);
+            int x2 = min(x1 + cellSize, labImg.cols);
+            Rect cellRect(x1, y1, x2 - x1, y2 - y1);
+
+            // Cache the median LAB value for this cell
+            labCache[r][c] = getMedianLab(labImg, cellRect);
+        }
+    }
 }
 
 void CellularTableDetector::detect(const Mat &imgBgra, Mat &mask, Mat &debugDraw,
@@ -55,7 +94,7 @@ void CellularTableDetector::detect(const Mat &imgBgra, Mat &mask, Mat &debugDraw
     }
 
     Mat small_bgr;
-    float scale = 1.0;  //(float)resizeHeight / rotated_bgra.rows;
+    float scale = (float)resizeHeight / rotated_bgra.rows;
     resize(rotated_bgra, small_bgr, Size(0, 0), scale, scale, INTER_AREA);
     debugDraw = small_bgr.clone();
 
@@ -78,18 +117,17 @@ void CellularTableDetector::detect(const Mat &imgBgra, Mat &mask, Mat &debugDraw
     int rows = static_cast<int>(ceil((double)lab_float.rows / cellSize));
     int cols = static_cast<int>(ceil((double)lab_float.cols / cellSize));
 
+    // Precompute all LAB values once
+    precomputeLabCache(lab_float, rows, cols);
+
     Mat visited = Mat::zeros(rows, cols, CV_8U);
     Mat inside = Mat::zeros(rows, cols, CV_8U);
 
     int centreR = rows / 2;
     int centreC = cols / 2;
 
-    int y1 = centreR * cellSize;
-    int x1 = centreC * cellSize;
-    int y2 = min(y1 + cellSize, lab_float.rows);
-    int x2 = min(x1 + cellSize, lab_float.cols);
-    Rect centerRect(x1, y1, x2 - x1, y2 - y1);
-    Vec3f refLab = getMedianLab(lab_float, centerRect);
+    // Get reference LAB from cache
+    Vec3f refLab = labCache[centreR][centreC];
 
     vector<Point> queue;
     queue.push_back(Point(centreC, centreR));
@@ -101,12 +139,8 @@ void CellularTableDetector::detect(const Mat &imgBgra, Mat &mask, Mat &debugDraw
         int r = p.y;
         int c = p.x;
 
-        y1 = r * cellSize;
-        x1 = c * cellSize;
-        y2 = min(y1 + cellSize, lab_float.rows);
-        x2 = min(x1 + cellSize, lab_float.cols);
-        Rect cellRect(x1, y1, x2 - x1, y2 - y1);
-        Vec3f cellLab = getMedianLab(lab_float, cellRect);
+        // Get LAB value from cache instead of recalculating
+        Vec3f cellLab = labCache[r][c];
         if (deltaE2000(refLab, cellLab) < deltaEThreshold) {
             inside.at<uchar>(r, c) = 1;
             for (int dr = -1; dr <= 1; ++dr) {
@@ -125,7 +159,7 @@ void CellularTableDetector::detect(const Mat &imgBgra, Mat &mask, Mat &debugDraw
     }
 
     resize(inside, mask, small_bgr.size(), 0, 0, INTER_NEAREST);
-    drawCells(debugDraw, inside);
+    // drawCells(debugDraw, inside);
 }
 
 void CellularTableDetector::drawCells(Mat &canvas, const Mat &insideMask) {

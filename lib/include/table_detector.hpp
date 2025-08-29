@@ -15,12 +15,16 @@ class CellularTableDetector {
 
    private:
     Vec3f getMedianLab(const Mat &labImg, const Rect &cellRect);
+    void precomputeLabCache(const Mat &labImg, int rows, int cols);
     double deltaE2000(const Vec3f &lab1, const Vec3f &lab2);
     void drawCells(Mat &canvas, const Mat &insideMask);
 
     int resizeHeight;
     int cellSize;
     double deltaEThreshold;
+    
+    // Cache for precomputed LAB values
+    vector<vector<Vec3f>> labCache;
 };
 
 #endif  // TABLE_DETECTOR_HPP

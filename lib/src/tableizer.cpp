@@ -22,11 +22,12 @@ using namespace cv;
 #define CONF_THRESH 0.6
 #define IOU_THRESH 0.5
 #define CELL_SIZE 10
-#define DELTAE_THRESH 15.0
+#define DELTAE_THRESH 25.0
 #define RESIZE 800  // not used
 
 int runTableizerForImage(Mat image, BallDetector& ballDetector) {
-#if defined(LOCAL_BUILD) && (defined(PLATFORM_MACOS) || defined(PLATFORM_LINUX) || defined(PLATFORM_WINDOWS))
+#if defined(LOCAL_BUILD) && \
+    (defined(PLATFORM_MACOS) || defined(PLATFORM_LINUX) || defined(PLATFORM_WINDOWS))
     imshow("Table", image);
     waitKey(0);
 
