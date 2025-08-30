@@ -37,8 +37,6 @@ dependencies:
   wakelock_plus: ^1.2.0
   path_provider: ^2.0.0
   vector_math: ^2.1.4
-  tableizer_detection:
-    path: ../packages/tableizer_detection
 
 dev_dependencies:
   flutter_test:

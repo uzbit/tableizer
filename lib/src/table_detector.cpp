@@ -14,7 +14,7 @@ CellularTableDetector::CellularTableDetector(int resizeHeight, int cellSize, dou
 
 Vec3f CellularTableDetector::getMedianLab(const Mat &labImg, const Rect &cellRect) {
     // Use random sampling for much faster median calculation
-    const int SAMPLE_SIZE = 15;  // Sample SAMPLE_SIZE pixels instead of all pixels
+    const int SAMPLE_SIZE = 25;  // Sample SAMPLE_SIZE pixels instead of all pixels
 
     Mat cell = labImg(cellRect);
     int totalPixels = cell.rows * cell.cols;
@@ -35,9 +35,9 @@ Vec3f CellularTableDetector::getMedianLab(const Mat &labImg, const Rect &cellRec
     static thread_local std::random_device rd;
     static thread_local std::mt19937 gen(rd());
 
+    // Generate random pixel position directly
+    std::uniform_int_distribution<> dis(0, totalPixels - 1);
     for (int i = 0; i < sampleSize; ++i) {
-        // Generate random pixel position directly
-        std::uniform_int_distribution<> dis(0, totalPixels - 1);
         int idx = dis(gen);
         int row = idx / cell.cols;
         int col = idx % cell.cols;
@@ -229,7 +229,7 @@ double CellularTableDetector::deltaE2000(const Vec3f &lab1, const Vec3f &lab2) {
                 Rt * (dCp / Sc) * (dHp / Sh));
 }
 
-vector<Point2f> CellularTableDetector::quadFromInside(const Mat &inside, int width, int height) {
+vector<Point2f> CellularTableDetector::getQuadFromMask(const Mat &inside) {
     // Find contours of the inside cells
     vector<vector<Point>> contours;
     findContours(inside, contours, RETR_EXTERNAL, CHAIN_APPROX_SIMPLE);

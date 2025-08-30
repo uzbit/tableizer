@@ -1,9 +1,9 @@
 import 'dart:ui';
 import 'package:flutter/material.dart';
-import 'package:tableizer_detection/tableizer_detection.dart';
+import '../models/ball_detection_result.dart';
 
 class BallPainter extends CustomPainter {
-  final List<Detection> detections;
+  final List<BallDetectionResult> detections;
   final Size imageSize;
   final Size displaySize;
 

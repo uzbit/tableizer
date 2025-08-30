@@ -2,7 +2,7 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:vector_math/vector_math_64.dart' hide Colors;
-import 'package:tableizer_detection/tableizer_detection.dart';
+import '../models/ball_detection_result.dart';
 
 /// Paints YOLO / detector boxes on top of a portrait camera preview.
 ///
@@ -14,7 +14,7 @@ class BoxPainter extends CustomPainter {
   });
 
   final ui.Size sensorSize;               // landscape sensor resolution
-  final List<Detection> detections;
+  final List<BallDetectionResult> detections;
 
   // ───────────────────  core transform  ───────────────────
   Rect _sensorToScreen(Rect r, ui.Size screen, BoxFit fit) {

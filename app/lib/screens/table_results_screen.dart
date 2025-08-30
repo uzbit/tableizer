@@ -1,11 +1,12 @@
 import 'package:flutter/material.dart';
 import 'dart:ui' as ui;
-import 'package:tableizer_detection/tableizer_detection.dart';
+import '../models/ball_detection_result.dart';
+import '../models/table_detection_result.dart';
 import '../widgets/table_ball_painter.dart';
 import 'settings_screen.dart';
 
 class TableResultsScreen extends StatelessWidget {
-  final List<Detection> ballDetections;
+  final List<BallDetectionResult> ballDetections;
   final ui.Size? capturedImageSize;
   final TableDetectionResult? tableDetectionResult;
 

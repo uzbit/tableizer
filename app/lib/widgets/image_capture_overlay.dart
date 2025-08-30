@@ -2,13 +2,14 @@ import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
-import 'package:tableizer_detection/tableizer_detection.dart';
+import '../models/ball_detection_result.dart';
+import '../models/table_detection_result.dart';
 import 'ball_painter.dart';
 import 'table_painter.dart';
 
 class ImageCaptureOverlay extends StatelessWidget {
   final Uint8List? capturedImageBytes;
-  final List<Detection> ballDetections;
+  final List<BallDetectionResult> ballDetections;
   final ui.Size? capturedImageSize;
   final TableDetectionResult? tableDetectionResult;
   final bool isProcessingBalls;

@@ -1,11 +1,12 @@
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
-import 'package:tableizer_detection/tableizer_detection.dart';
+import '../models/ball_detection_result.dart';
+import '../models/table_detection_result.dart';
 import '../services/settings_service.dart';
 
 class TableBallPainter extends CustomPainter {
-  final List<Detection> detections;
+  final List<BallDetectionResult> detections;
   final ui.Size? capturedImageSize;
   final ui.Size tableDisplaySize;
   final TableDetectionResult? tableDetectionResult;
@@ -46,7 +47,7 @@ class TableBallPainter extends CustomPainter {
     }
   }
 
-  void _drawBall(Canvas canvas, Detection detection) {
+  void _drawBall(Canvas canvas, BallDetectionResult detection) {
     // Transform coordinates from image space to table space (simple scaling fallback)
     final x = (detection.centerX / capturedImageSize!.width) * tableDisplaySize.width;
     final y = (detection.centerY / capturedImageSize!.height) * tableDisplaySize.height;
@@ -227,7 +228,7 @@ class TableBallPainter extends CustomPainter {
     return Offset(u, v);
   }
 
-  void _drawBallAtPosition(Canvas canvas, Detection detection, Offset position) {
+  void _drawBallAtPosition(Canvas canvas, BallDetectionResult detection, Offset position) {
     // Ball colors based on class
     final ballColor = _getBallColor(detection.classId);
     

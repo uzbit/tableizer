@@ -1,6 +1,7 @@
 import 'dart:ffi';
 import 'dart:io';
-import 'package:tableizer_detection/tableizer_detection.dart';
+import 'package:app/services/ball_detection_service.dart';
+import 'package:app/services/table_detection_service.dart';
 import 'package:ffi/ffi.dart';
 import 'package:image/image.dart' as img;
 

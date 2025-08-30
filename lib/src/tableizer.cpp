@@ -19,11 +19,16 @@
 using namespace std;
 using namespace cv;
 
+// Ball detection constants
 #define CONF_THRESH 0.6
 #define IOU_THRESH 0.5
-#define CELL_SIZE 10
-#define DELTAE_THRESH 25.0
-#define RESIZE 800  // not used
+
+// Table detection constants
+#define CELL_SIZE 15  // Table detection, determines how fine/corse detection (affects fps).
+#define DELTAE_THRESH \
+    25.0  // Table detection, determines how close the median color of a cell must be to the target
+          // color for inclusion in mask.
+#define RESIZE 800  // Use for streaming detection only
 
 int runTableizerForImage(Mat image, BallDetector& ballDetector) {
 #if defined(LOCAL_BUILD) && \
@@ -36,8 +41,7 @@ int runTableizerForImage(Mat image, BallDetector& ballDetector) {
     CellularTableDetector tableDetector(image.rows, CELL_SIZE, DELTAE_THRESH);
     Mat mask, tableDetection;
     tableDetector.detect(image, mask, tableDetection, 0);
-    std::vector<cv::Point2f> directQuadPoints =
-        tableDetector.quadFromInside(mask, tableDetection.cols, tableDetection.rows);
+    std::vector<cv::Point2f> directQuadPoints = tableDetector.getQuadFromMask(mask);
 
     if (directQuadPoints.size() != 4) {
         cerr << "Error: Direct detection failed to find 4 points." << endl;
@@ -285,14 +289,11 @@ DetectionResult* detect_table_bgra(const unsigned char* image_bytes, int width, 
             return nullptr;
         }
 
-        // CellularTableDetector tableDetector(bgra_image_unrotated.rows, CELL_SIZE, DELTAE_THRESH);
-
-        CellularTableDetector tableDetector(bgra_image_unrotated.rows, CELL_SIZE, DELTAE_THRESH);
+        CellularTableDetector tableDetector(RESIZE, CELL_SIZE, DELTAE_THRESH);
         Mat mask, tableDetection;
         tableDetector.detect(bgra_image_unrotated, mask, tableDetection, rotation_degrees);
 
-        std::vector<cv::Point2f> quadPoints =
-            tableDetector.quadFromInside(mask, tableDetection.cols, tableDetection.rows);
+        std::vector<cv::Point2f> quadPoints = tableDetector.getQuadFromMask(mask);
 
         /*
         // --- Draw Quad on Debug Image (DISABLED FOR PERFORMANCE) ---
@@ -353,8 +354,7 @@ const char* detect_table_rgba(const unsigned char* image_bytes, int width, int h
         CellularTableDetector tableDetector(bgr.rows, CELL_SIZE, DELTAE_THRESH);
         Mat mask, tableDetection;
         tableDetector.detect(bgr, mask, tableDetection, 0);
-        std::vector<cv::Point2f> quadPoints =
-            tableDetector.quadFromInside(mask, tableDetection.cols, tableDetection.rows);
+        std::vector<cv::Point2f> quadPoints = tableDetector.getQuadFromMask(mask);
 
         std::vector<uchar> buf;
         cv::imencode(".jpg", tableDetection, buf);
