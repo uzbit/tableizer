@@ -13,42 +13,35 @@ CellularTableDetector::CellularTableDetector(int resizeHeight, int cellSize, dou
     : resizeHeight(resizeHeight), cellSize(cellSize), deltaEThreshold(deltaEThreshold) {}
 
 Vec3f CellularTableDetector::getMedianLab(const Mat &labImg, const Rect &cellRect) {
-    // Use random sampling for much faster median calculation
-    const int SAMPLE_SIZE = 100;  // Sample SAMPLE_SIZE pixels instead of all pixels
-
+    // Use systematic grid sampling for more consistent results
     Mat cell = labImg(cellRect);
-    int totalPixels = cell.rows * cell.cols;
-
-    if (totalPixels == 0) {
+    
+    if (cell.rows == 0 || cell.cols == 0) {
         return Vec3f(0, 0, 0);
     }
 
-    // If cell is very small, use all pixels
-    int sampleSize = min(SAMPLE_SIZE, totalPixels);
-
     vector<float> L, A, B;
-    L.reserve(sampleSize);
-    A.reserve(sampleSize);
-    B.reserve(sampleSize);
-
-    // Use faster random sampling without creating full index array
-    static thread_local std::random_device rd;
-    static thread_local std::mt19937 gen(rd());
-
-    // Generate random pixel position directly
-    std::uniform_int_distribution<> dis(0, totalPixels - 1);
-    for (int i = 0; i < sampleSize; ++i) {
-        int idx = dis(gen);
-        int row = idx / cell.cols;
-        int col = idx % cell.cols;
-
-        const Vec3f &pixel = cell.at<Vec3f>(row, col);
-        L.push_back(pixel[0]);
-        A.push_back(pixel[1]);
-        B.push_back(pixel[2]);
+    
+    // Use systematic grid sampling instead of random sampling
+    int stepR = std::max(1, cell.rows / 10);  // Sample every stepR rows
+    int stepC = std::max(1, cell.cols / 10);  // Sample every stepC cols
+    
+    for (int r = 0; r < cell.rows; r += stepR) {
+        for (int c = 0; c < cell.cols; c += stepC) {
+            const Vec3f &pixel = cell.at<Vec3f>(r, c);
+            L.push_back(pixel[0]);
+            A.push_back(pixel[1]);
+            B.push_back(pixel[2]);
+        }
     }
 
-    // Find median of the sample
+    if (L.empty()) {
+        // Fallback to center pixel if grid sampling failed
+        const Vec3f &centerPixel = cell.at<Vec3f>(cell.rows/2, cell.cols/2);
+        return centerPixel;
+    }
+
+    // Find median of the systematic samples
     size_t mid = L.size() / 2;
     nth_element(L.begin(), L.begin() + mid, L.end());
     nth_element(A.begin(), A.begin() + mid, A.end());
@@ -126,8 +119,15 @@ void CellularTableDetector::detect(const Mat &imgBgra, Mat &mask, Mat &debugDraw
     int centreR = rows / 2;
     int centreC = cols / 2;
 
-    // Get reference LAB from cache
-    Vec3f refLab = labCache[centreR][centreC];
+    // Calculate robust multi-reference color instead of single center point
+    Vec3f refLab = calculateMultiReferenceColor(lab_float, rows, cols);
+    cout << "Multi-reference color: L=" << refLab[0] << ", A=" << refLab[1] << ", B=" << refLab[2]
+         << endl;
+
+    // Calculate adaptive threshold based on local color variance
+    double adaptiveThresh = calculateAdaptiveThreshold(lab_float, refLab);
+    cout << "Adaptive threshold: " << adaptiveThresh << " (initial: " << deltaEThreshold << ")"
+         << endl;
 
     vector<Point> queue;
     queue.push_back(Point(centreC, centreR));
@@ -141,7 +141,7 @@ void CellularTableDetector::detect(const Mat &imgBgra, Mat &mask, Mat &debugDraw
 
         // Get LAB value from cache instead of recalculating
         Vec3f cellLab = labCache[r][c];
-        if (deltaE2000(refLab, cellLab) < deltaEThreshold) {
+        if (deltaE2000(refLab, cellLab) < adaptiveThresh) {
             inside.at<uchar>(r, c) = 1;
             for (int dr = -1; dr <= 1; ++dr) {
                 for (int dc = -1; dc <= 1; ++dc) {
@@ -159,7 +159,7 @@ void CellularTableDetector::detect(const Mat &imgBgra, Mat &mask, Mat &debugDraw
     }
 
     resize(inside, mask, small_bgr.size(), 0, 0, INTER_NEAREST);
-    // drawCells(debugDraw, inside);
+    drawCells(debugDraw, inside);
 }
 
 void CellularTableDetector::drawCells(Mat &canvas, const Mat &insideMask) {
@@ -274,4 +274,160 @@ vector<Point2f> CellularTableDetector::getQuadFromMask(const Mat &inside) {
     }
 
     return orderQuad(quadPoints);
+}
+
+double CellularTableDetector::calculateAdaptiveThreshold(const Mat &labImg, const Vec3f &refLab) {
+    // Calculate a sophisticated adaptive threshold based on local color variance
+    // This analyzes the color distribution around the reference point to determine
+    // how strict the threshold should be
+
+    int rows = labCache.size();
+    int cols = rows > 0 ? labCache[0].size() : 0;
+
+    if (rows == 0 || cols == 0) return deltaEThreshold;
+
+    int centerR = rows / 2;
+    int centerC = cols / 2;
+
+    // Sample colors only from a reasonable table area around center (not entire image)
+    // This avoids including background colors that aren't relevant for table detection
+    vector<double> deltaEs;
+    deltaEs.reserve(100);
+
+    // Define a reasonable sampling area around center (limit to ~1/3 of image size)
+    int maxRadius = std::min({rows/6, cols/6, 15});  // Reasonable table area, not entire image
+
+    // Sample in a grid pattern within the table area instead of rings
+    for (int dr = -maxRadius; dr <= maxRadius; dr += 2) {  // Step by 2 for efficiency
+        for (int dc = -maxRadius; dc <= maxRadius; dc += 2) {
+            int sampleR = centerR + dr;
+            int sampleC = centerC + dc;
+
+            // Check bounds and skip center point
+            if (sampleR >= 0 && sampleR < rows && sampleC >= 0 && sampleC < cols &&
+                !(dr == 0 && dc == 0)) {
+                Vec3f sampleLab = labCache[sampleR][sampleC];
+                double deltaE = deltaE2000(refLab, sampleLab);
+                deltaEs.push_back(deltaE);
+            }
+        }
+    }
+
+    if (deltaEs.empty()) {
+        return deltaEThreshold;  // Fallback to original threshold
+    }
+
+    // Calculate sophisticated statistics
+    sort(deltaEs.begin(), deltaEs.end());
+
+    size_t n = deltaEs.size();
+    double q25 = deltaEs[n / 4];      // 25th percentile
+    double median = deltaEs[n / 2];   // 50th percentile
+    double q75 = deltaEs[3 * n / 4];  // 75th percentile
+    double iqr = q75 - q25;           // Interquartile range
+
+    // Calculate mean and standard deviation
+    double mean = 0.0;
+    for (double de : deltaEs) mean += de;
+    mean /= n;
+
+    double variance = 0.0;
+    for (double de : deltaEs) {
+        double diff = de - mean;
+        variance += diff * diff;
+    }
+    double stdDev = sqrt(variance / n);
+
+    // Calculate adaptive threshold based on the data distribution
+    // For uniform table surfaces, we want to be more permissive
+    double adaptiveThresh;
+
+    if (stdDev < 2.0) {
+        // Very uniform area - be quite permissive
+        adaptiveThresh = std::max(deltaEThreshold * 0.8, q75 + iqr * 2.0);
+    } else if (stdDev < 5.0) {
+        // Moderately uniform - still be permissive
+        adaptiveThresh = std::max(deltaEThreshold * 0.7, q75 + iqr);
+    } else {
+        // High variance area - use more conservative approach
+        adaptiveThresh = std::max(deltaEThreshold * 0.6, median + iqr);
+    }
+
+    // Cap at reasonable maximum but don't force minimum bounds
+    adaptiveThresh = std::min(deltaEThreshold * 1.5, adaptiveThresh);
+
+    cout << "Adaptive threshold analysis:" << endl;
+    cout << "  Samples: " << n << ", Mean: " << mean << ", StdDev: " << stdDev << endl;
+    cout << "  Q25: " << q25 << ", Median: " << median << ", Q75: " << q75 << ", IQR: " << iqr
+         << endl;
+    cout << "  Final adaptive threshold: " << adaptiveThresh << endl;
+
+    return adaptiveThresh;
+}
+
+Vec3f CellularTableDetector::calculateMultiReferenceColor(const Mat &labImg, int rows, int cols) {
+    // Calculate a robust multi-reference color using systematic sampling
+    // This provides much more stable color reference than a single center point
+
+    if (rows == 0 || cols == 0) return Vec3f(50, 0, 0);  // Default neutral
+
+    int centerR = rows / 2;
+    int centerC = cols / 2;
+
+    vector<Vec3f> candidateColors;
+    candidateColors.reserve(25);  // Up to 5x5 grid
+
+    // Sample in a systematic 5x5 grid around center (adaptive to image size)
+    int maxOffset = std::min({3, rows / 4, cols / 4});  // Limit offset based on image size
+
+    for (int dr = -maxOffset; dr <= maxOffset; dr++) {
+        for (int dc = -maxOffset; dc <= maxOffset; dc++) {
+            int sampleR = centerR + dr;
+            int sampleC = centerC + dc;
+
+            // Check bounds
+            if (sampleR >= 0 && sampleR < rows && sampleC >= 0 && sampleC < cols) {
+                Vec3f sampleColor = labCache[sampleR][sampleC];
+                candidateColors.push_back(sampleColor);
+            }
+        }
+    }
+
+    if (candidateColors.empty()) {
+        // Fallback to center if no samples
+        return labCache[centerR][centerC];
+    }
+
+    // Calculate median reference color directly (median handles outliers naturally)
+    return calculateMedianColor(candidateColors);
+}
+
+Vec3f CellularTableDetector::calculateMedianColor(const vector<Vec3f>& colors) {
+    if (colors.empty()) {
+        return Vec3f(50, 0, 0);  // Default neutral
+    }
+    
+    if (colors.size() == 1) {
+        return colors[0];
+    }
+    
+    // Calculate median for each channel independently
+    vector<float> L, A, B;
+    L.reserve(colors.size());
+    A.reserve(colors.size()); 
+    B.reserve(colors.size());
+    
+    for (const auto& color : colors) {
+        L.push_back(color[0]);
+        A.push_back(color[1]);
+        B.push_back(color[2]);
+    }
+    
+    // Find medians
+    size_t mid = colors.size() / 2;
+    nth_element(L.begin(), L.begin() + mid, L.end());
+    nth_element(A.begin(), A.begin() + mid, A.end());
+    nth_element(B.begin(), B.begin() + mid, B.end());
+    
+    return Vec3f(L[mid], A[mid], B[mid]);
 }

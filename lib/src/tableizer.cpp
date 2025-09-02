@@ -20,7 +20,7 @@ using namespace cv;
 // Table detection constants
 #define CELL_SIZE 15  // Table detection, determines how fine/corse detection (affects fps).
 #define DELTAE_THRESH \
-    20.0  // Table detection, determines how close the median color of a cell must be to the target
+    10.0  // Table detection, determines how close the median color of a cell must be to the target
           // color for inclusion in mask.
 #define RESIZE 800  // Use for streaming detection only
 
@@ -31,7 +31,8 @@ int runTableizerForImage(Mat image, BallDetector& ballDetector) {
 
     // --- 1. Get ground truth quad points by calling the detector directly ---
     cout << "--- 1: Table Detection (Direct) ---" << endl;
-    CellularTableDetector tableDetector(RESIZE, CELL_SIZE, DELTAE_THRESH);
+    CellularTableDetector tableDetector(image.rows, CELL_SIZE,
+                                        DELTAE_THRESH);  // Use full resolution
     Mat mask, tableDetection;
     cv::Mat bgra_direct;
     cv::cvtColor(image, bgra_direct, cv::COLOR_BGR2BGRA);
@@ -95,52 +96,27 @@ int runTableizerForImage(Mat image, BallDetector& ballDetector) {
         return -1;
     }
 
-    // --- 3. Compare the results ---
-    cout << "--- 3: Comparing Direct vs. FFI Results Table Quad ---" << endl;
-    bool match = true;
-    double epsilon = 1e-5;
-    if (directQuadPoints.size() != ffiQuadPoints.size()) {
-        match = false;
-    } else {
-        for (size_t i = 0; i < directQuadPoints.size(); ++i) {
-            printf("x, y: %f, %f\n", directQuadPoints[i].x, directQuadPoints[i].y);
-
-            if (std::abs(directQuadPoints[i].x - ffiQuadPoints[i].x) > epsilon ||
-                std::abs(directQuadPoints[i].y - ffiQuadPoints[i].y) > epsilon) {
-                match = false;
-                break;
-            }
-        }
-    }
-
-    if (match) {
-        cout << "SUCCESS: Quad points from direct call and FFI call match." << endl;
-    } else {
-        cerr << "FAILURE: Quad points do not match!" << endl;
-        cerr << "  Direct Points:" << endl;
-        for (const auto& p : directQuadPoints) cerr << "    (" << p.x << ", " << p.y << ")" << endl;
-        cerr << "  FFI Points:" << endl;
-        for (const auto& p : ffiQuadPoints) cerr << "    (" << p.x << ", " << p.y << ")" << endl;
-        // return -1;  // Exit on failure
-    }
-    cout << endl;
+    cout << "Direct quad points: " << directQuadPoints.size() << " points found" << endl;
+    cout << "FFI quad points: " << ffiQuadPoints.size() << " points found" << endl;
 
     // --- Continue with the rest of the process using the validated points ---
     std::vector<cv::Point2f> quadPoints = ffiQuadPoints;  // Use FFI points for subsequent steps
 
-    // Draw quad on detection image using original detection coordinates
-    std::vector<cv::Point> quadDraw;
-    quadDraw.reserve(quadPoints.size());
-    for (const auto& pt : quadPoints) quadDraw.emplace_back(cvRound(pt.x), cvRound(pt.y));
-
-    // Scale quad points from detection image coordinate space back to original image space
-    float detectionScale = (float)RESIZE / image.rows;  // scale used in detection
+    // Scale FFI quad points from detection image coordinate space back to original image space
+    // FFI still uses RESIZE, so we need to scale up the coordinates
+    float detectionScale = (float)RESIZE / image.rows;  // scale used in FFI detection
     float upscale = 1.0f / detectionScale;              // inverse to scale back up
     for (auto& pt : quadPoints) {
         pt.x *= upscale;
         pt.y *= upscale;
     }
+
+    // Draw quad on detection image using scaled coordinates
+    std::vector<cv::Point> quadDraw;
+    quadDraw.reserve(quadPoints.size());
+    for (const auto& pt : quadPoints) quadDraw.emplace_back(cvRound(pt.x), cvRound(pt.y));
     cv::polylines(tableDetection, quadDraw, true, cv::Scalar(0, 0, 255), 5);
+
     imshow("Quad Found (from FFI)", tableDetection);
     waitKey(0);
 

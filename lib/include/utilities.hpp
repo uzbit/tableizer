@@ -9,18 +9,18 @@
 
 // Platform detection macros
 #if defined(__ANDROID__)
-    #define PLATFORM_ANDROID 1
+#define PLATFORM_ANDROID 1
 #elif defined(__APPLE__)
-    #include <TargetConditionals.h>
-    #if TARGET_OS_IPHONE
-        #define PLATFORM_IOS 1
-    #else
-        #define PLATFORM_MACOS 1
-    #endif
-#elif defined(_WIN32) || defined(_WIN64)
-    #define PLATFORM_WINDOWS 1
+#include <TargetConditionals.h>
+#if TARGET_OS_IPHONE
+#define PLATFORM_IOS 1
 #else
-    #define PLATFORM_LINUX 1
+#define PLATFORM_MACOS 1
+#endif
+#elif defined(_WIN32) || defined(_WIN64)
+#define PLATFORM_WINDOWS 1
+#else
+#define PLATFORM_LINUX 1
 #endif
 
 // Conditional logging headers and macros
