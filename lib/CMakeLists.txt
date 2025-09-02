@@ -64,7 +64,7 @@ if(BUILD_SHARED_LIB)
     else()
         message(STATUS "Configuring for local library build (e.g., Linux/Windows)")
         set(ONNXRuntime_ROOT "/opt/homebrew") # Local dev path
-        set(ONNXRUNTIME_INCLUDE_DIR ${ONNXRuntime_ROOT}/include)
+        set(ONNXRUNTIME_INCLUDE_DIR ${ONNXRuntime_ROOT}/include/onnxruntime)
         set(ONNXRUNTIME_LIBRARY_PATH ${ONNXRuntime_ROOT}/lib/libonnxruntime.dylib) # Be specific
         find_package(OpenCV REQUIRED NO_MODULE)
     endif()
@@ -106,7 +106,7 @@ else()
 
     # Add ONNX Runtime paths manually
     include_directories(${CMAKE_SOURCE_DIR}/include)
-    include_directories(${ONNXRuntime_ROOT}/include)
+    include_directories(${ONNXRuntime_ROOT}/include/onnxruntime)
     link_directories(${ONNXRuntime_ROOT}/lib)
 
     # Find OpenCV (using pkg-config or Homebrew)
@@ -119,7 +119,7 @@ else()
     target_include_directories(tableizer_lib PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}/include
         ${OpenCV_INCLUDE_DIRS}
-        ${ONNXRuntime_ROOT}/include
+        ${ONNXRuntime_ROOT}/include/onnxruntime
     )
     target_link_libraries(tableizer_lib PUBLIC
         ${OpenCV_LIBS}

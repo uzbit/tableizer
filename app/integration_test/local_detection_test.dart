@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:ffi';
 import 'dart:io';
 import 'package:app/services/ball_detection_service.dart';
@@ -49,7 +50,7 @@ void main() {
     // --- Direct FFI call for testing ---
     final Pointer<Uint8> imagePtr = calloc<Uint8>(bytes.length);
     imagePtr.asTypedList(bytes.length).setAll(0, bytes);
-    Pointer<DetectionResult> resultPtr = nullptr;
+    Pointer<Utf8> resultPtr = nullptr;
 
     try {
       resultPtr = detectionService.detectTableBgra(
@@ -63,8 +64,12 @@ void main() {
 
       // --- Assertions ---
       expect(resultPtr, isNot(nullptr));
-      final result = resultPtr.ref;
-      expect(result.quad_points_count, 4);
+      final jsonResult = resultPtr.toDartString();
+      final Map<String, dynamic> parsed = json.decode(jsonResult);
+      
+      expect(parsed.containsKey('error'), false);
+      final List<dynamic> quadPointsJson = parsed['quad_points'] ?? [];
+      expect(quadPointsJson.length, 4);
 
       // EXPECTED QUAD (in resized detection image coordinates):
       final expectedPoints = [
@@ -75,15 +80,12 @@ void main() {
       ];
 
       for (int i = 0; i < 4; i++) {
-        expect(result.quad_points[i].x, closeTo(expectedPoints[i].x, 5));
-        expect(result.quad_points[i].y, closeTo(expectedPoints[i].y, 5));
+        expect(quadPointsJson[i]['x'], closeTo(expectedPoints[i].x, 5));
+        expect(quadPointsJson[i]['y'], closeTo(expectedPoints[i].y, 5));
       }
 
     } finally {
       // --- CRITICAL: Memory cleanup ---
-      if (resultPtr != nullptr) {
-        detectionService.freeBgraDetectionResult(resultPtr);
-      }
       calloc.free(imagePtr);
     }
   });

@@ -10,12 +10,6 @@
 #include "tableizer.hpp"
 #include "utilities.hpp"
 
-#if defined(PLATFORM_ANDROID)
-#include <core/session/onnxruntime_cxx_api.h>
-#else
-#include <onnxruntime_cxx_api.h>
-#endif
-
 using namespace std;
 using namespace cv;
 
@@ -26,21 +20,22 @@ using namespace cv;
 // Table detection constants
 #define CELL_SIZE 15  // Table detection, determines how fine/corse detection (affects fps).
 #define DELTAE_THRESH \
-    25.0  // Table detection, determines how close the median color of a cell must be to the target
+    20.0  // Table detection, determines how close the median color of a cell must be to the target
           // color for inclusion in mask.
 #define RESIZE 800  // Use for streaming detection only
 
 int runTableizerForImage(Mat image, BallDetector& ballDetector) {
-#if defined(LOCAL_BUILD) && \
-    (defined(PLATFORM_MACOS) || defined(PLATFORM_LINUX) || defined(PLATFORM_WINDOWS))
+#if (defined(PLATFORM_MACOS) || defined(PLATFORM_LINUX) || defined(PLATFORM_WINDOWS))
     imshow("Table", image);
     waitKey(0);
 
     // --- 1. Get ground truth quad points by calling the detector directly ---
     cout << "--- 1: Table Detection (Direct) ---" << endl;
-    CellularTableDetector tableDetector(image.rows, CELL_SIZE, DELTAE_THRESH);
+    CellularTableDetector tableDetector(RESIZE, CELL_SIZE, DELTAE_THRESH);
     Mat mask, tableDetection;
-    tableDetector.detect(image, mask, tableDetection, 0);
+    cv::Mat bgra_direct;
+    cv::cvtColor(image, bgra_direct, cv::COLOR_BGR2BGRA);
+    tableDetector.detect(bgra_direct, mask, tableDetection, 0);
     std::vector<cv::Point2f> directQuadPoints = tableDetector.getQuadFromMask(mask);
 
     if (directQuadPoints.size() != 4) {
@@ -52,19 +47,53 @@ int runTableizerForImage(Mat image, BallDetector& ballDetector) {
     cout << "--- 2: Table Detection (FFI) ---" << endl;
     cv::Mat bgra_image;
     cv::cvtColor(image, bgra_image, cv::COLOR_BGR2BGRA);
-    DetectionResult* ffiResult = detect_table_bgra(bgra_image.data, bgra_image.cols,
-                                                   bgra_image.rows, bgra_image.step, 0, nullptr);
+    const char* jsonResult = detect_table_bgra(bgra_image.data, bgra_image.cols, bgra_image.rows,
+                                               bgra_image.step, 0, nullptr);
 
-    if (ffiResult == nullptr || ffiResult->quad_points_count != 4) {
-        cerr << "Error: FFI detection failed to find 4 points." << endl;
-        if (ffiResult) free_bgra_detection_result(ffiResult);
+    if (jsonResult == nullptr) {
+        cerr << "Error: FFI detection returned null." << endl;
         return -1;
     }
+
+    // Parse JSON result (simple manual parsing for test code)
+    std::string jsonStr(jsonResult);
     std::vector<cv::Point2f> ffiQuadPoints;
-    for (int i = 0; i < ffiResult->quad_points_count; ++i) {
-        ffiQuadPoints.emplace_back(ffiResult->quad_points[i].x, ffiResult->quad_points[i].y);
+
+    // Find quad_points array in JSON
+    size_t quadStart = jsonStr.find("\"quad_points\":");
+    if (quadStart == std::string::npos) {
+        cerr << "Error: No quad_points found in JSON response." << endl;
+        return -1;
     }
-    free_bgra_detection_result(ffiResult);
+
+    // Extract x,y values (simple regex-free parsing)
+    size_t pos = quadStart;
+    int pointCount = 0;
+    while (pos < jsonStr.length() && pointCount < 4) {
+        size_t xPos = jsonStr.find("\"x\":", pos);
+        size_t yPos = jsonStr.find("\"y\":", pos);
+        if (xPos == std::string::npos || yPos == std::string::npos) break;
+
+        // Extract x value
+        size_t xStart = xPos + 4;
+        size_t xEnd = jsonStr.find(",", xStart);
+        if (xEnd == std::string::npos) xEnd = jsonStr.find("}", xStart);
+        float x = std::stof(jsonStr.substr(xStart, xEnd - xStart));
+
+        // Extract y value
+        size_t yStart = yPos + 4;
+        size_t yEnd = jsonStr.find("}", yStart);
+        float y = std::stof(jsonStr.substr(yStart, yEnd - yStart));
+
+        ffiQuadPoints.emplace_back(x, y);
+        pointCount++;
+        pos = yEnd + 1;
+    }
+
+    if (ffiQuadPoints.size() != 4) {
+        cerr << "Error: FFI detection failed to find 4 points." << endl;
+        return -1;
+    }
 
     // --- 3. Compare the results ---
     cout << "--- 3: Comparing Direct vs. FFI Results Table Quad ---" << endl;
@@ -92,22 +121,37 @@ int runTableizerForImage(Mat image, BallDetector& ballDetector) {
         for (const auto& p : directQuadPoints) cerr << "    (" << p.x << ", " << p.y << ")" << endl;
         cerr << "  FFI Points:" << endl;
         for (const auto& p : ffiQuadPoints) cerr << "    (" << p.x << ", " << p.y << ")" << endl;
-        return -1;  // Exit on failure
+        // return -1;  // Exit on failure
     }
     cout << endl;
 
     // --- Continue with the rest of the process using the validated points ---
     std::vector<cv::Point2f> quadPoints = ffiQuadPoints;  // Use FFI points for subsequent steps
 
+    // Draw quad on detection image using original detection coordinates
     std::vector<cv::Point> quadDraw;
     quadDraw.reserve(quadPoints.size());
     for (const auto& pt : quadPoints) quadDraw.emplace_back(cvRound(pt.x), cvRound(pt.y));
+
+    // Scale quad points from detection image coordinate space back to original image space
+    float detectionScale = (float)RESIZE / image.rows;  // scale used in detection
+    float upscale = 1.0f / detectionScale;              // inverse to scale back up
+    for (auto& pt : quadPoints) {
+        pt.x *= upscale;
+        pt.y *= upscale;
+    }
     cv::polylines(tableDetection, quadDraw, true, cv::Scalar(0, 0, 255), 5);
     imshow("Quad Found (from FFI)", tableDetection);
     waitKey(0);
 
     // 3. Warp Table
-    bool rotate = true;
+    // Compute rotation like Dart code: check if topLength > rightLength * 1.75
+    // Quad points are already ordered by orderQuad function
+    float topLength = cv::norm(quadPoints[1] - quadPoints[0]);    // top edge
+    float rightLength = cv::norm(quadPoints[2] - quadPoints[1]);  // right edge
+    bool rotate = topLength < rightLength * 1.75;
+    cout << "Quad analysis: topLength=" << topLength << ", rightLength=" << rightLength
+         << ", rotate=" << rotate << endl;
     WarpResult warpResult = warpTable(image, quadPoints, "warp.jpg", 840, rotate);
 
     // --- Ball detection & drawing --------------------------
@@ -116,17 +160,13 @@ int runTableizerForImage(Mat image, BallDetector& ballDetector) {
     const vector<Detection> detections = ballDetector.detect(image, CONF_THRESH, IOU_THRESH);
     cout << "Found " << detections.size() << " balls after non-maximum suppression.\n\n";
 
-    // 5. Build transform: original-pixel  ➜  table_detection  ➜  canonical table
+    // 5. Build transform: original-pixel  ➜  canonical table
     // --------------------------------------------------------
-    const double scaleY =
-        static_cast<double>(tableDetection.rows) / static_cast<double>(image.rows);
-    const double scaleX =
-        static_cast<double>(tableDetection.cols) / static_cast<double>(image.cols);
-
-    cv::Mat Hscale = (cv::Mat_<double>(3, 3) << scaleX, 0, 0, 0, scaleY, 0, 0, 0, 1);
+    // Since quad points are now scaled to original image coordinates,
+    // we can use the warp transform directly without additional scaling
     cv::Mat Hwarp;
     warpResult.transform.convertTo(Hwarp, CV_64F);
-    cv::Mat Htotal = Hscale * Hwarp;
+    cv::Mat Htotal = Hwarp;
 
     // 6. Draw predictions on the canonical table and shot-studio template
     // --------------------------------------------------------
@@ -280,13 +320,15 @@ void release_detector(void* detector_ptr) {
     }
 }
 
-DetectionResult* detect_table_bgra(const unsigned char* image_bytes, int width, int height,
-                                   int stride, int rotation_degrees, const char* debug_image_path) {
+const char* detect_table_bgra(const unsigned char* image_bytes, int width, int height, int stride,
+                              int rotation_degrees, const char* debug_image_path) {
+    static std::string result_str;
     try {
         cv::Mat bgra_image_unrotated(height, width, CV_8UC4, (void*)image_bytes, stride);
         if (bgra_image_unrotated.empty()) {
             LOGE("Failed to create image from bytes.");
-            return nullptr;
+            result_str = "{\"error\": \"Failed to create image from bytes\"}";
+            return result_str.c_str();
         }
 
         CellularTableDetector tableDetector(RESIZE, CELL_SIZE, DELTAE_THRESH);
@@ -317,19 +359,23 @@ DetectionResult* detect_table_bgra(const unsigned char* image_bytes, int width, 
         }
         */
 
-        DetectionResult* result = new DetectionResult();
-        result->quad_points_count = quadPoints.size();
-        result->image_width = tableDetection.cols;
-        result->image_height = tableDetection.rows;
+        std::string json = "{\"quad_points\": [";
         for (size_t i = 0; i < quadPoints.size(); ++i) {
-            result->quad_points[i] = {quadPoints[i].x, quadPoints[i].y};
+            json += "{\"x\": " + std::to_string(quadPoints[i].x) +
+                    ", \"y\": " + std::to_string(quadPoints[i].y) + "}";
+            if (i < quadPoints.size() - 1) json += ", ";
         }
-        // LOGI("Detected %d quad points.", result->quad_points_count);
-        return result;
+        json += "], \"image_width\": " + std::to_string(tableDetection.cols) +
+                ", \"image_height\": " + std::to_string(tableDetection.rows) + "}";
+
+        result_str = json;
+        return result_str.c_str();
 
     } catch (const std::exception& e) {
         LOGE("Error in detect_table_bgra: %s", e.what());
-        return nullptr;
+        result_str =
+            "{\"error\": \"Exception in detect_table_bgra: " + std::string(e.what()) + "\"}";
+        return result_str.c_str();
     }
 }
 

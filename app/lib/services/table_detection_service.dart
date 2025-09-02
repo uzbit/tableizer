@@ -34,9 +34,9 @@ final class DetectionResult extends Struct {
 }
 
 // --- FFI Function Signatures ---
-typedef DetectTableBgraC = Pointer<DetectionResult> Function(Pointer<Uint8> imageBytes, Int32 width,
+typedef DetectTableBgraC = Pointer<Utf8> Function(Pointer<Uint8> imageBytes, Int32 width,
     Int32 height, Int32 stride, Int32 rotationDegrees, Pointer<Utf8> debugImagePath);
-typedef DetectTableBgraDart = Pointer<DetectionResult> Function(Pointer<Uint8> imageBytes,
+typedef DetectTableBgraDart = Pointer<Utf8> Function(Pointer<Uint8> imageBytes,
     int width, int height, int stride, int rotationDegrees, Pointer<Utf8> debugImagePath);
 
 typedef DetectTableRgbaC = Pointer<Utf8> Function(Pointer<Uint8> imageBytes, Int32 width,

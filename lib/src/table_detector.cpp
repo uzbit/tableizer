@@ -14,7 +14,7 @@ CellularTableDetector::CellularTableDetector(int resizeHeight, int cellSize, dou
 
 Vec3f CellularTableDetector::getMedianLab(const Mat &labImg, const Rect &cellRect) {
     // Use random sampling for much faster median calculation
-    const int SAMPLE_SIZE = 25;  // Sample SAMPLE_SIZE pixels instead of all pixels
+    const int SAMPLE_SIZE = 100;  // Sample SAMPLE_SIZE pixels instead of all pixels
 
     Mat cell = labImg(cellRect);
     int totalPixels = cell.rows * cell.cols;
@@ -235,7 +235,7 @@ vector<Point2f> CellularTableDetector::getQuadFromMask(const Mat &inside) {
     findContours(inside, contours, RETR_EXTERNAL, CHAIN_APPROX_SIMPLE);
 
     if (contours.empty()) {
-        return Mat();
+        return vector<Point2f>();
     }
 
     // Find the largest contour
@@ -250,7 +250,7 @@ vector<Point2f> CellularTableDetector::getQuadFromMask(const Mat &inside) {
     }
 
     if (maxAreaIdx == -1) {
-        return Mat();
+        return vector<Point2f>();
     }
 
     // Get the convex hull of the largest contour
@@ -263,14 +263,15 @@ vector<Point2f> CellularTableDetector::getQuadFromMask(const Mat &inside) {
 
     if (approx.size() != 4) {
         // Fallback or error handling if not a quadrilateral
-        return Mat();
+        return vector<Point2f>();
     }
 
-    // Convert to Mat
-    Mat quad(4, 1, CV_32FC2);
+    // Convert to vector<Point2f>
+    vector<Point2f> quadPoints;
+    quadPoints.reserve(4);
     for (int i = 0; i < 4; ++i) {
-        quad.at<Vec2f>(i, 0) = Point2f(approx[i].x, approx[i].y);
+        quadPoints.emplace_back(static_cast<float>(approx[i].x), static_cast<float>(approx[i].y));
     }
 
-    return orderQuad(quad);
+    return orderQuad(quadPoints);
 }

@@ -57,8 +57,8 @@ __attribute__((visibility("default"))) __attribute__((used)) const char* detect_
     const unsigned char* image_bytes, int width, int height, int channels, int stride);
 
 // High-performance, zero-copy alternative to detect_table_rgba.
-// Allocates a DetectionResult struct that must be freed by the caller.
-__attribute__((visibility("default"))) __attribute__((used)) DetectionResult* detect_table_bgra(
+// Returns JSON string with table detection results
+__attribute__((visibility("default"))) __attribute__((used)) const char* detect_table_bgra(
     const unsigned char* image_bytes, int width, int height, int stride,
     int rotation_degrees, const char* debug_image_path);
 

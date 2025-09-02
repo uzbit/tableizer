@@ -20,7 +20,7 @@ class TableDetectionController extends ChangeNotifier {
   bool _isEnabled = true;  // Control whether table detection is active
   
   // Alpha filter settings for quad point smoothing
-  static const double _quadAlpha = 0.3;  // 30% new, 70% previous (smooth)
+  static const double _quadAlpha = 0.2;  // _quadAlpha% new, 100-_quadAlpha% previous (smooth)
 
   // Getters
   List<Offset> get quadPoints => _filteredQuadPoints.isNotEmpty ? _filteredQuadPoints : _quadPoints;

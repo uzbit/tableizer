@@ -1,16 +1,20 @@
+import 'dart:convert';
 import 'dart:ffi' hide Size;
-import 'dart:io';
 import 'dart:isolate';
 import 'dart:ui';
 
 import 'package:camerawesome/camerawesome_plugin.dart';
 import 'package:ffi/ffi.dart';
 import 'package:flutter/services.dart' hide Size;
-import 'package:path_provider/path_provider.dart';
 
 import '../models/table_detection_result.dart';
 import '../native/library_loader.dart';
-import 'table_detection_service.dart';
+
+// --- FFI Function Signatures ---
+typedef DetectTableBgraC = Pointer<Utf8> Function(Pointer<Uint8> imageBytes, Int32 width,
+    Int32 height, Int32 stride, Int32 rotationDegrees, Pointer<Utf8> debugImagePath);
+typedef DetectTableBgraDart = Pointer<Utf8> Function(Pointer<Uint8> imageBytes,
+    int width, int height, int stride, int rotationDegrees, Pointer<Utf8> debugImagePath);
 
 /// The entry point for the table detection isolate.
 void tableDetectionIsolateEntry(List<dynamic> args) async {
@@ -33,13 +37,9 @@ void tableDetectionIsolateEntry(List<dynamic> args) async {
   final detectTableBgra = dylib
       .lookup<NativeFunction<DetectTableBgraC>>('detect_table_bgra')
       .asFunction<DetectTableBgraDart>();
-  final freeBgraDetectionResult = dylib
-      .lookup<NativeFunction<FreeBgraDetectionResultC>>('free_bgra_detection_result')
-      .asFunction<FreeBgraDetectionResultDart>();
   // --- End FFI setup ---
 
   int frameCount = 0;
-  final tempDir = await getTemporaryDirectory();
 
   // --- Pre-allocate a native buffer to avoid allocation on every frame ---
   final Pointer<Uint8> imagePtr = calloc<Uint8>(3840 * 2160 * 4);
@@ -47,7 +47,7 @@ void tableDetectionIsolateEntry(List<dynamic> args) async {
   receivePort.listen((dynamic message) {
     if (message is AnalysisImage) {
       message.when(bgra8888: (image) {
-        Pointer<DetectionResult> resultPtr = nullptr;
+        Pointer<Utf8> resultPtr = nullptr;
         Pointer<Utf8> pathPtr = nullptr;
 
         try {
@@ -90,29 +90,30 @@ void tableDetectionIsolateEntry(List<dynamic> args) async {
           frameCount++;
 
           if (resultPtr != nullptr) {
-            final result = resultPtr.ref;
-            final quadPoints = <Offset>[];
-            for (var i = 0; i < result.quad_points_count; i++) {
-              quadPoints.add(Offset(
-                result.quad_points[i].x,
-                result.quad_points[i].y,
+            final jsonResult = resultPtr.toDartString();
+            final Map<String, dynamic> parsed = json.decode(jsonResult);
+            
+            if (parsed.containsKey('error')) {
+              print('[TABLE_ISOLATE] Error from native: ${parsed['error']}');
+            } else {
+              final List<dynamic> quadPointsJson = parsed['quad_points'] ?? [];
+              final quadPoints = quadPointsJson.map<Offset>((point) {
+                return Offset(point['x'].toDouble(), point['y'].toDouble());
+              }).toList();
+              
+              // Send the complete result object back
+              sendPort.send(TableDetectionResult(
+                quadPoints,
+                Size(
+                  (parsed['image_width'] ?? image.width).toDouble(),
+                  (parsed['image_height'] ?? image.height).toDouble(),
+                ),
               ));
             }
-            // Send the complete result object back
-            sendPort.send(TableDetectionResult(
-              quadPoints,
-              Size(
-                result.image_width.toDouble(),
-                result.image_height.toDouble(),
-              ),
-            ));
           }
         } catch (e) {
           print('[TABLE_ISOLATE] Error processing image: $e');
         } finally {
-          if (resultPtr != nullptr) {
-            freeBgraDetectionResult(resultPtr);
-          }
           if (pathPtr != nullptr) {
             calloc.free(pathPtr);
           }
