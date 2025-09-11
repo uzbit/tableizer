@@ -3,8 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:image/image.dart' as img;
 
 /// Pops up the converted frame; returns when user taps "Continue".
-Future<void> showFrameDebug(BuildContext context, img.Image rgba) async {
-  final Uint8List pngBytes = Uint8List.fromList(img.encodePng(rgba));
+Future<void> showFrameDebug(BuildContext context, img.Image bgra) async {
+  final Uint8List pngBytes = Uint8List.fromList(img.encodePng(bgra));
 
   await showDialog<void>(
     context: context,

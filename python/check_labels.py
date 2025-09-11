@@ -7,21 +7,24 @@ has a matching .txt file in labels/*/*  (and vice-versa)
 from pathlib import Path
 import argparse, textwrap
 
+
 def collect(root: Path, kind: str):
     return {
         p.relative_to(root / f"{kind}s").with_suffix("")
-        for p in (root / f"{kind}s").rglob("*.*")     # jpg, png, txt …
+        for p in (root / f"{kind}s").rglob("*.*")  # jpg, png, txt …
         if p.is_file()
     }
+
 
 def main():
     ap = argparse.ArgumentParser(
         description="Check YOLO image/label parity",
-        formatter_class=argparse.RawTextHelpFormatter)
-    ap.add_argument("dataset_root",
-                    help="Folder that contains images/train, labels/train, ...")
-    ap.add_argument("--show", action="store_true",
-                    help="print every mismatch filename")
+        formatter_class=argparse.RawTextHelpFormatter,
+    )
+    ap.add_argument(
+        "dataset_root", help="Folder that contains images/train, labels/train, ..."
+    )
+    ap.add_argument("--show", action="store_true", help="print every mismatch filename")
     args = ap.parse_args()
 
     root = Path(args.dataset_root).expanduser()
@@ -30,8 +33,8 @@ def main():
         imgs = collect(root / "images", split)
         lbls = collect(root / "labels", split)
 
-        missing_lbl = imgs - lbls      # images without labels
-        orphan_lbl  = lbls - imgs      # labels without images
+        missing_lbl = imgs - lbls  # images without labels
+        orphan_lbl = lbls - imgs  # labels without images
 
         print(f"\n[{split.upper()}]  images: {len(imgs):5d}   labels: {len(lbls):5d}")
         print(f"          missing labels: {len(missing_lbl):3d}")
@@ -48,7 +51,6 @@ def main():
     if not bad:
         print("\n✅  All images have labels and vice-versa!")
 
+
 if __name__ == "__main__":
     main()
-
-

@@ -11,8 +11,8 @@ import '../native/library_loader.dart';
 typedef InitializeDetectorC = Pointer<Void> Function(Pointer<Utf8> modelPath);
 typedef InitializeDetectorDart = Pointer<Void> Function(Pointer<Utf8> modelPath);
 
-typedef DetectObjectsRGBAC = Pointer<Utf8> Function(Pointer<Void> detector, Pointer<Uint8> imageBytes, Int32 width, Int32 height, Int32 channels);
-typedef DetectObjectsRGBADart = Pointer<Utf8> Function(Pointer<Void> detector, Pointer<Uint8> imageBytes, int width, int height, int channels);
+typedef DetectObjectsBGRAC = Pointer<Utf8> Function(Pointer<Void> detector, Pointer<Uint8> imageBytes, Int32 width, Int32 height, Int32 stride);
+typedef DetectObjectsBGRADart = Pointer<Utf8> Function(Pointer<Void> detector, Pointer<Uint8> imageBytes, int width, int height, int stride);
 
 typedef ReleaseDetectorC = Void Function(Pointer<Void> detector);
 typedef ReleaseDetectorDart = void Function(Pointer<Void> detector);
@@ -20,7 +20,7 @@ typedef ReleaseDetectorDart = void Function(Pointer<Void> detector);
 class BallDetectionService {
   Pointer<Void> _detector = nullptr;
   late final InitializeDetectorDart _initializeDetector;
-  late final DetectObjectsRGBADart _detectObjectsRGBA;
+  late final DetectObjectsBGRADart _detectObjectsBGRA;
   late final ReleaseDetectorDart _releaseDetector;
   // late final void Function(Pointer<Utf8>) _freeCString;
 
@@ -67,7 +67,7 @@ class BallDetectionService {
       pixelPtr.asTypedList(bytes.length).setAll(0, bytes);
 
       // ── Native inference call ─────────────────────────────────────────────
-      jsonPtr = _detectObjectsRGBA(_detector, pixelPtr, width, height, 4);
+      jsonPtr = _detectObjectsBGRA(_detector, pixelPtr, width, height, width * 4);
 
       final jsonStr = jsonPtr.toDartString();
       print('JSON Detection: $jsonStr'); // always log result
@@ -92,8 +92,8 @@ class BallDetectionService {
     _initializeDetector = dylib
         .lookup<NativeFunction<InitializeDetectorC>>('initialize_detector')
         .asFunction();
-    _detectObjectsRGBA = dylib
-        .lookup<NativeFunction<DetectObjectsRGBAC>>('detect_objects_rgba')
+    _detectObjectsBGRA = dylib
+        .lookup<NativeFunction<DetectObjectsBGRAC>>('detect_objects_bgra')
         .asFunction();
     _releaseDetector = dylib
         .lookup<NativeFunction<ReleaseDetectorC>>('release_detector')

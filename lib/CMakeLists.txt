@@ -13,6 +13,7 @@ set(LIB_SOURCES
     src/table_detector.cpp
     src/ball_detector.cpp
     src/utilities.cpp
+    src/base64_utils.cpp
 )
 set(APP_SOURCES
     ${LIB_SOURCES}
@@ -47,7 +48,15 @@ if(BUILD_SHARED_LIB)
         message(STATUS "Configuring for iOS")
         
         # Use locally built OpenCV static libraries
-        set(OpenCV_DIR "${CMAKE_CURRENT_SOURCE_DIR}/libs/opencv/build-sim")
+        # Use build-device for iOS device, build-sim for iOS simulator
+        # Check for SDK to determine device vs simulator build
+        if(CMAKE_OSX_SYSROOT MATCHES "iPhoneOS" OR CMAKE_OSX_SYSROOT MATCHES "iphoneos")
+            set(OpenCV_DIR "${CMAKE_CURRENT_SOURCE_DIR}/libs/opencv/build-device")
+            message(STATUS "Using OpenCV from build-device for iOS device (SDK: ${CMAKE_OSX_SYSROOT})")
+        else()
+            set(OpenCV_DIR "${CMAKE_CURRENT_SOURCE_DIR}/libs/opencv/build-sim")
+            message(STATUS "Using OpenCV from build-sim for iOS simulator (SDK: ${CMAKE_OSX_SYSROOT})")
+        endif()
         find_package(OpenCV REQUIRED COMPONENTS core imgproc dnn imgcodecs photo features2d video calib3d)
         
         # Use CocoaPods-installed ONNX Runtime

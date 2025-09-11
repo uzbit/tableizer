@@ -1,429 +1,488 @@
-# billiard_table_detector.py
+# detect_table.py
 # ---------------------------------------------------------------
 from pathlib import Path
 import cv2
 import glob
-import random
 import numpy as np
-from math import atan2, cos, degrees, exp, radians, sin, sqrt
+
 import sys
+import os
 from utilities import (
-    drawShotStudio,
     load_detection_model,
     get_detection,
-    drawBallOverlays,
-    orderQuad,
-    warpTable,
+    calculate_ball_pixel_size,
 )
+from tableizer_ffi import detect_table_cpp, transform_points_cpp
 
-# from auxillary.RL_usedirectly import load_RL_no_env
-# from auxillary.mapping import HomographyMapping
+MODEL_PATH = "/Users/uzbit/Documents/projects/tableizer/tableizer/exp9/weights/best.pt"
 
+# ShotStudio background path
+SHOTSTUDIO_BG_PATH = "../data/shotstudio_table_felt_only.png"
 
-# ──────────────────────────────────────────────────────────
-#  ΔE CIEDE2000  (scalar version – good enough for one cell)
-# ──────────────────────────────────────────────────────────
-def deltaE2000(lab1, lab2):
-    # L∈[0,100]  a,b∈[-128,127]
-    L1, a1, b1 = lab1
-    L2, a2, b2 = lab2
+# Processing parameters
+SHOTSTUDIO_SIZE = (840, 1680)
 
-    c1, c2 = sqrt(a1 * a1 + b1 * b1), sqrt(a2 * a2 + b2 * b2)
-    cBar = (c1 + c2) / 2.0
+# Detection parameters
+CONF_THRESHOLD = 0.6
+IOU_THRESHOLD = 0.7
 
-    G = 0.5 * (1 - sqrt((cBar**7) / (cBar**7 + 25**7)))
-    a1p = (1 + G) * a1
-    a2p = (1 + G) * a2
-    c1p, c2p = sqrt(a1p * a1p + b1 * b1), sqrt(a2p * a2p + b2 * b2)
-    cBarP = (c1p + c2p) / 2.0
-
-    h1p = (degrees(atan2(b1, a1p)) + 360) % 360
-    h2p = (degrees(atan2(b2, a2p)) + 360) % 360
-
-    dLp = L2 - L1
-    dCp = c2p - c1p
-    dhp = h2p - h1p
-    if c1p * c2p:  # both >0
-        if abs(dhp) > 180:
-            dhp -= 360 * np.sign(dhp)
-    else:
-        dhp = 0
-    dHp = 2 * sqrt(c1p * c2p) * sin(radians(dhp) / 2.0)
-
-    LBarP = (L1 + L2) / 2.0
-    hBarP = h1p + dhp / 2.0
-    if abs(h1p - h2p) > 180:
-        hBarP = (h1p + h2p + 360) / 2.0
-    hBarP %= 360
-
-    T = (
-        1
-        - 0.17 * cos(radians(hBarP - 30))
-        + 0.24 * cos(radians(2 * hBarP))
-        + 0.32 * cos(radians(3 * hBarP + 6))
-        - 0.20 * cos(radians(4 * hBarP - 63))
-    )
-
-    Sl = 1 + (0.015 * (LBarP - 50) ** 2) / sqrt(20 + (LBarP - 50) ** 2)
-    Sc = 1 + 0.045 * cBarP
-    Sh = 1 + 0.015 * cBarP * T
-    Rt = (
-        -2
-        * sqrt((cBarP**7) / (cBarP**7 + 25**7))
-        * sin(radians(30 * exp(-(((hBarP - 275) / 25) ** 2))))
-    )
-
-    return sqrt(
-        (dLp / Sl) ** 2
-        + (dCp / Sc) ** 2
-        + (dHp / Sh) ** 2
-        + Rt * (dCp / Sc) * (dHp / Sh)
-    )
+# Global ShotStudio background (loaded once)
+_SHOTSTUDIO_BG = None
 
 
-# ──────────────────────────────────────────────────────────
-#  Cellular flood-fill detector
-# ──────────────────────────────────────────────────────────
-class CellularTableDetector:
-    """
-    Implements the 5-step cellular algorithm you specified.
+def get_shotstudio_background():
+    """Load and prepare ShotStudio background image (cached)."""
+    global _SHOTSTUDIO_BG
 
-    Parameters
-    ----------
-    resizeHeight     : int   – image is scaled so height = this (keeps aspect)
-    cellSize         : int   – A×A pixels per cell
-    deltaEThreshold  : float – max CIEDE2000 distance to call a cell “inside”
-    """
-
-    def __init__(
-        self, resizeHeight: int = 600, cellSize: int = 24, deltaEThreshold: float = 10.0
-    ):
-        self.resizeHeight = resizeHeight
-        self.cellSize = cellSize
-        self.deltaEThreshold = deltaEThreshold
-
-    # --------------------------- public API ----------------------------------
-    def detect(self, imgBgr: np.ndarray):
-        """
-        Returns
-        -------
-        maskInside : np.ndarray  uint8 mask (1 = inside felt, 0 = outside)
-        debugDraw  : np.ndarray  BGR preview with inside cells outlined
-        """
-        small, labImg = self._prepare(imgBgr)
-
-        rows = int(np.ceil(small.shape[0] / self.cellSize))
-        cols = int(np.ceil(small.shape[1] / self.cellSize))
-
-        visited = np.zeros((rows, cols), bool)
-        inside = np.zeros((rows, cols), bool)
-
-        # central reference colour (median Lab of the centre cell)
-        centreR, centreC = rows // 2, cols // 2
-        sampleDist = 20
-        refList = list()
-        posList = list()
-        for _ in range(100):
-            posx = centreR + random.randint(-sampleDist, sampleDist)
-            posy = centreC + random.randint(-sampleDist, sampleDist)
-            posList.append((posx, posy))
-            refList.append(
-                self._medianLab(
-                    labImg,
-                    posx,
-                    posy,
-                )
-            )
-        # for col, pos in zip(refList, posList):
-        #     print(pos, col)
-
-        refLab = np.median(np.array(refList), axis=0)
-
-        print("TARGET COLOR", refLab)
-        # BFS / flood-fill
-        queue = [(centreR, centreC)]
-        visited[centreR, centreC] = True
-        while queue:
-            r, c = queue.pop()
-            cellLab = self._medianLab(labImg, r, c)
-            if deltaE2000(refLab, cellLab) < self.deltaEThreshold:
-                inside[r, c] = True
-                # spawn 8-neighbours
-                for dr in (-1, 0, 1):
-                    for dc in (-1, 0, 1):
-                        if dr == dc == 0:
-                            continue
-                        nr, nc = r + dr, c + dc
-                        if 0 <= nr < rows and 0 <= nc < cols and not visited[nr, nc]:
-                            visited[nr, nc] = True
-                            queue.append((nr, nc))
-
-        mask = cv2.resize(
-            inside.astype(np.uint8),  # 0/1 per cell → full res mask
-            (small.shape[1], small.shape[0]),
-            interpolation=cv2.INTER_NEAREST,
-        )
-
-        debug = self._drawCells(small.copy(), inside)
-
-        return small, inside, mask, debug
-
-    def quadFromInside2(self, inside: np.ndarray) -> np.ndarray:
-        """
-        Given a binary grid `inside` of shape (rows, cols) and the cellSize in pixels,
-        return the best-fit quadrilateral [BL, TL, BR, TR] as a 4x2 float32 array.
-        """
-        # 1. Get pixel coordinates of cell centers
-        ys, xs = np.where(inside)
-        if len(xs) == 0:
+    if _SHOTSTUDIO_BG is None:
+        print("Loading ShotStudio background...")
+        bg = cv2.imread(SHOTSTUDIO_BG_PATH)
+        if bg is None:
+            print(f"Could not load ShotStudio background: {SHOTSTUDIO_BG_PATH}")
             return None
 
-        centers = np.stack(
-            [(xs + 0.5) * self.cellSize, (ys + 0.5) * self.cellSize], axis=1
-        ).astype(np.float32)
+        bg_h, bg_w = bg.shape[:2]
+        print(f"Original ShotStudio background size: {bg_w}x{bg_h}")
 
-        # 2. Convex hull
-        hull = cv2.convexHull(centers)
+        # Rotate to portrait if needed to match SHOTSTUDIO_SIZE (840x1680)
+        target_w, target_h = SHOTSTUDIO_SIZE
+        if bg_w > bg_h and target_h > target_w:
+            print("Rotating ShotStudio background from landscape to portrait")
+            bg = cv2.rotate(bg, cv2.ROTATE_90_COUNTERCLOCKWISE)
+            bg_h, bg_w = bg.shape[:2]
+            print(f"Rotated ShotStudio background size: {bg_w}x{bg_h}")
 
-        # 3. Approximate hull with a quadrilateral
-        epsilon = 2.0 * cv2.arcLength(hull, True)
-        approx = cv2.approxPolyN(hull, 4, epsilon, 0.2)[0]
+        # Resize to target size
+        if (bg_w != target_w) or (bg_h != target_h):
+            print(f"Resizing ShotStudio background to {target_w}x{target_h}")
+            bg = cv2.resize(bg, (target_w, target_h))
 
-        quad = approx.reshape(4, 2).astype(np.float32)
+        _SHOTSTUDIO_BG = bg
+        print("ShotStudio background prepared and cached")
 
-        # 5. Order quad as [BL, TL, BR, TR] (optional, if needed)
-        return orderQuad(quad)
-
-    def quadFromInside(self, inside: np.ndarray, width, height):
-        """
-        Return the 4 × 2 float32 array [BL, TL, BR, TR] taken from the most
-        isolated (farthest-from-centre) inside cells in each quadrant.
-
-        If a quadrant has no cells, it silently falls back to the previous
-        “axis-extremum” logic for that corner.
-        """
-        ys, xs = np.where(inside)
-        if xs.size == 0:
-            return None
-
-        print(width, height)
-        # cell centres in pixel coords of the resized frame (x, y)
-        ctrs = np.stack(
-            [(xs + 0.5) * self.cellSize, (ys + 0.5) * self.cellSize], axis=1
-        ).astype(np.float32)
-
-        # -- Top-left: closest to (0, 0)
-        targetTL = np.array([0, 0], dtype=np.float32)
-        dist2TL = np.sum((ctrs - targetTL) ** 2, axis=1)
-        idxTL = np.argmin(dist2TL)
-        txl, tyl = ctrs[idxTL]
-
-        # -- Top-right: closest to (width, 0)
-        targetTR = np.array([width, -height], dtype=np.float32)
-        dist2TR = np.sum((ctrs - targetTR) ** 2, axis=1)
-        idxTR = np.argmin(dist2TR)
-        txr, tyr = ctrs[idxTR]
-        ty = min(ctrs[:, 1])
-        print(idxTR, dist2TR[idxTR], txr, ctrs[idxTR])
-
-        leftIdx = np.argmin(ctrs[:, 0])  # smallest x
-        rightIdx = np.argmax(ctrs[:, 0])  # largest x
-        byl = ctrs[leftIdx, 1]
-        byr = ctrs[rightIdx, 1]
-        bxr = ctrs[rightIdx, 0]
-        bxl = ctrs[leftIdx, 0]
-        by = max(ctrs[:, 1])
-
-        topLine = self._lineFromTwoPoints((txr, tyr), (txl, tyl))
-        bottomLine = self._lineFromTwoPoints((bxr, by), (bxl, by))
-        leftLine = self._lineFromTwoPoints((txl, tyl), (bxl, byl))
-        rightLine = self._lineFromTwoPoints((txr, tyr), (bxr, byr))
-
-        print(topLine, bottomLine, leftLine, rightLine)
-
-        topLeft = self._intersectLines(topLine, leftLine)
-        topRight = self._intersectLines(topLine, rightLine)
-        bottomLeft = self._intersectLines(bottomLine, leftLine)
-        bottomRight = self._intersectLines(bottomLine, rightLine)
-        # print(topLeft, topRight, bottomLeft, bottomRight)
-        lines = [topLeft, topRight, bottomRight, bottomLeft]
-        if not all(lines):
-            return None
-        quad = np.array(lines).astype(np.int16)
-        # print(quad)
-        print("-" * 100)
-        return quad
-
-    # --------------------------- helpers -------------------------------------
-    def _intersectLines(self, line1, line2):
-        A1, B1, C1 = line1
-        A2, B2, C2 = line2
-        D = A1 * B2 - A2 * B1
-        if abs(D) < 1e-8:
-            return None  # lines are parallel or coincident
-        x = (B1 * C2 - B2 * C1) / D
-        y = (C1 * A2 - C2 * A1) / D
-        return (x, y)
-
-    def _lineFromTwoPoints(self, p1, p2):
-        x1, y1 = p1
-        x2, y2 = p2
-        A = y1 - y2
-        B = x2 - x1
-        C = x1 * y2 - x2 * y1
-        return A, B, C
-
-    def _prepare(self, imgBgr):
-        h, w = imgBgr.shape[:2]
-        scale = self.resizeHeight / h
-        small = cv2.resize(
-            imgBgr, (int(w * scale), self.resizeHeight), interpolation=cv2.INTER_AREA
-        )
-
-        lab = cv2.cvtColor(small, cv2.COLOR_BGR2LAB).astype(np.float32)
-        lab[..., 0] = lab[..., 0] * 100 / 255  # 0-100
-        lab[..., 1:] -= 128  # a*, b* centre at 0
-        return small, lab
-
-    def _medianLab(self, labImg, cellR, cellC):
-        y1 = cellR * self.cellSize
-        x1 = cellC * self.cellSize
-        y2 = min(y1 + self.cellSize, labImg.shape[0])
-        x2 = min(x1 + self.cellSize, labImg.shape[1])
-        return np.median(labImg[y1:y2, x1:x2].reshape(-1, 3), axis=0)
-
-    def _drawCells(self, canvas, insideMask):
-        for r, c in zip(*np.where(insideMask)):
-            y, x = r * self.cellSize, c * self.cellSize
-            cv2.rectangle(
-                canvas,
-                (x, y),
-                (x + self.cellSize - 1, y + self.cellSize - 1),
-                (0, 255, 0),
-                1,
-            )
-        return canvas
+    return _SHOTSTUDIO_BG.copy()  # Return a copy to avoid modifying the cached version
 
 
 def main():
 
     if len(sys.argv) == 2:
         # Process example image (replace with actual image path)
-        imageDir = sys.argv[1]
+        image_dir = sys.argv[1]
     else:
         sys.exit(1)
 
     image = None  # "../data/Photos-1-001/P_20250711_201047.jpg"  # "../../pix2pockets/8-Ball-Pool-3/train/images/11f_png.rf.eb0169eccfb6b264a582491457ff37b6.jpg"
     if not image:
-        for image in glob.glob(f"{imageDir}/*.jpg"):
-            runDetect(image)
+        for image in glob.glob(f"{image_dir}/*.jpg"):
+            run_detect(image)
     else:
-        runDetect(image)
+        run_detect(image)
 
 
-def runDetect(imagePath):
-    print("-" * 100)
-    print(f"Detecting for {imagePath}...")
-    img = cv2.imread(imagePath)
-    det = CellularTableDetector(
-        resizeHeight=3000, cellSize=20, deltaEThreshold=20
-    )  # tweak threshold ↔ lighting
+def detect_table_and_validate(img):
+    """Detect table quadrilateral and validate results.
 
-    small, inside, mask, debug = det.detect(img)
-
-    # plt.figure(figsize=(4,6)); plt.imshow(cv2.cvtColor(debug, cv2.COLOR_BGR2RGB))
-    # plt.title("Inside cells (green outlines)"); plt.axis("off")
-    # plt.show()
-
-    # quad = det.quadFromInside(inside, img.shape[1], img.shape[0])
-    # if quad is None:
-    quad = det.quadFromInside2(inside)
-
-    if quad is not None:
-        vis = debug.copy()
-        cv2.polylines(vis, [quad.astype(int)], True, (0, 0, 255), 2)
-        for p in quad.astype(int):
-            cv2.circle(vis, tuple(p), 6, (0, 0, 255), -1)
-        print("BL, TL, BR, TR  (pixel coords in resized frame):\n", quad)
-        cv2.imshow("Quad via cell extremums", vis)
-        cv2.waitKey(0)
-        cv2.destroyAllWindows()
-
-        small_path = "/tmp/small.jpg"
-        cv2.imwrite(small_path, small)
-
-        warp_path = "/tmp/warp.jpg"
-        warpImg, Htot = warpTable(
-            small,
-            orderQuad(quad),
-            warp_path,
-            outW=840,  # Shotstudio: (840, 1626, 3)
-            rotate=True,
-        )
-
-        warpedPts, ballClasses, warpRgb = getBalls(small_path, warpImg, Htot)
-        if warpedPts is not None:
-            drawShotStudio(warpedPts, ballClasses, warpRgb)
-
-    else:
-        vis = debug.copy()
-        h, w = vis.shape[:2]
-
-        # Draw from top-left to bottom-right
-        cv2.line(vis, (0, 0), (w - 1, h - 1), (0, 0, 255), 2)
-
-        # Draw from bottom-left to top-right
-        cv2.line(vis, (0, h - 1), (w - 1, 0), (0, 0, 255), 2)
-
-        cv2.imshow("Red X", vis)
-        cv2.waitKey(0)
-        cv2.destroyAllWindows()
-        # vis = debug.copy()
-        # plt.imshow(cv2.cvtColor(vis, cv2.COLOR_BGR2RGB))
-        print("NO QUAD FOUND!")
-    print("-" * 100)
-
-
-def getBalls(origImgPath, warpImg, H):
+    Returns:
+        tuple or None: (quad_points, mask) where:
+            - quad_points: numpy.ndarray of shape (4,2) with quad coordinates
+            - mask: numpy.ndarray (grayscale) or None
+        Returns None if detection failed
     """
-    origImgPath : original full-frame image path
-    warpImg     : portrait or landscape cloth image from warpTable
-    H           : homography original → warpImg (already includes rotation)
-    """
-    #modelPath = "/Users/uzbit/Documents/projects/pix2pockets/detection_model_weight/detection_model.pt"
-    modelPath = "/Users/uzbit/Documents/projects/tableizer/tableizer/exp7/weights/best.pt"
-    model = load_detection_model(modelPath)
+    print("Using C++ table detection...")
+    detection_result = detect_table_cpp(img, rotation_degrees=0)
 
-    # ---------- run detector on ORIGINAL frame ------------------------------
-    origBgr, dets = get_detection(
-        origImgPath, model, post_process=True, conf_thresh=0.4, iou_thresh=0.05
-    )
+    if not detection_result or "quad_points" not in detection_result:
+        print("C++ table detection failed!")
+        return None
 
-    # keep only balls
-    balls = dets[dets[:, 5] != 4]
-    if balls.size == 0:
-        print("No balls.")
-        return None, None, None
+    quad_points_list = detection_result["quad_points"]
+    if len(quad_points_list) != 4:
+        print(f"Invalid quad points count: {len(quad_points_list)}")
+        return None
 
-    # ---------- centres in original-pixel space -----------------------------
-    ballCenters = np.array([[b[0], b[1]] for b in balls])
-    ballClasses = balls[:, -1]
+    # Convert from list format to numpy array - these are in FULL resolution coordinates
+    quad = np.array(quad_points_list, dtype=np.float32)
+    mask = detection_result.get("mask", None)
 
-    # ---------- project into warp space -------------------------------------
-    pts = np.asarray(ballCenters, np.float32).reshape(-1, 1, 2)
-    warpedPts = cv2.perspectiveTransform(pts, H).reshape(-1, 2)
+    print(f"C++ table detection found quad (full res): {quad}")
+    if mask is not None:
+        print(f"Mask shape: {mask.shape}")
 
-    print(ballCenters)
-    print(warpedPts)
+    return quad, mask
 
-    # ---------- draw on the *warp* image (RGB) ------------------------------
-    warpRgb = cv2.cvtColor(warpImg, cv2.COLOR_BGR2RGB)
-    overlay = drawBallOverlays(warpRgb, warpedPts, ballClasses, radius=14)
 
-    cv2.imshow("Balls on warp", cv2.cvtColor(overlay, cv2.COLOR_RGB2BGR))
+def visualize_quad_detection(img, quad):
+    """Show table quad detection on original image."""
+    vis = img.copy()
+    print(f"Drawing quad: {quad}")
+    cv2.polylines(vis, [quad.astype(int)], True, (0, 0, 255), 2)
+    for p in quad.astype(int):
+        cv2.circle(vis, tuple(p), 6, (0, 0, 255), -1)
+    print("BL, TL, BR, TR  (pixel coords in full frame):\n", quad)
+    cv2.imshow("Quad via cell extremums", vis)
     cv2.waitKey(0)
     cv2.destroyAllWindows()
-    return warpedPts, ballClasses, warpRgb
+
+
+def show_detection_failed(img):
+    """Show red X when detection fails."""
+    vis = img.copy()
+    h, w = vis.shape[:2]
+    # Draw from top-left to bottom-right
+    cv2.line(vis, (0, 0), (w - 1, h - 1), (0, 0, 255), 2)
+    # Draw from bottom-left to top-right
+    cv2.line(vis, (0, h - 1), (w - 1, 0), (0, 0, 255), 2)
+    cv2.imshow("Red X", vis)
+    cv2.waitKey(0)
+    cv2.destroyAllWindows()
+    print("NO QUAD FOUND!")
+
+
+def process_balls_and_visualize(img, quad, orig_quad_points, orig_img_size):
+    """Detect balls, transform coordinates, and create visualizations."""
+    # Get ball detections and transform directly to ShotStudio coordinates
+    ball_centers, ball_classes = get_balls_from_image(img)
+
+    if ball_centers is None or len(ball_centers) == 0:
+        print("No balls detected")
+        return
+
+    print(f"Found {len(ball_centers)} balls")
+
+    print(f"Ball centers in full resolution coordinates: {ball_centers}")
+    print(f"Quad points: {orig_quad_points}")
+    print(f"Original image size: {orig_img_size}")
+
+    # Transform ball positions directly to ShotStudio coordinates
+    print(f"Target ShotStudio size: {SHOTSTUDIO_SIZE}")
+
+    transformed_points = transform_points_cpp(
+        ball_centers.tolist(), orig_quad_points, orig_img_size, SHOTSTUDIO_SIZE
+    )
+
+    if not transformed_points:
+        print("C++ coordinate transformation failed")
+        return
+
+    # Print transformed coordinates
+    transformed_coords = [[pt["x"], pt["y"]] for pt in transformed_points]
+    print(f"Transformed ball positions in ShotStudio coordinates: {transformed_coords}")
+
+    # Draw overlay on original image (circle indicators with quad)
+    temp_img = img.copy()
+    cv2.polylines(temp_img, [quad.astype(int)], True, (0, 255, 0), 3)
+    draw_ball_overlay_on_image(
+        ball_centers,
+        ball_classes,
+        temp_img,
+        "Original Image with Detections",
+        use_circle_indicators=True,
+    )
+
+    # Extract table region in portrait mode (same size as ShotStudio)
+    extracted_table = extract_table_region(img, quad)
+
+    # Transform ball positions for the extracted table region
+    extracted_ball_positions = transform_balls_for_extracted_table(ball_centers, quad)
+
+    # Draw balls on extracted table region (circle indicators)
+    draw_ball_overlay_on_image(
+        extracted_ball_positions,
+        ball_classes,
+        extracted_table,
+        "Extracted Table with Ball Detections",
+        use_circle_indicators=True,
+    )
+
+    # Get prepared ShotStudio background (loaded and cached)
+    shotstudio_bg = get_shotstudio_background()
+    if shotstudio_bg is None:
+        return
+
+    # Draw balls on ShotStudio background with same positions and style as extracted table
+    draw_ball_overlay_on_image(
+        extracted_ball_positions,
+        ball_classes,
+        shotstudio_bg,
+        "ShotStudio with Ball Detections",
+        use_circle_indicators=True,
+    )
+
+
+def run_detect(image_path):
+    print("-" * 100)
+    print(f"Detecting for {image_path}...")
+    img = cv2.imread(image_path)
+
+    # Detect table quadrilateral and mask
+    detection_result = detect_table_and_validate(img)
+
+    if detection_result is not None:
+        quad, mask = detection_result
+
+        # Show quad detection
+        visualize_quad_detection(img, quad)
+
+        # Apply mask to image before ball detection if mask is available
+        if mask is not None:
+            # Resize mask to match original image dimensions
+            mask_resized = cv2.resize(mask, (img.shape[1], img.shape[0]))
+            # Apply mask - zero out non-table regions
+            masked_img = cv2.bitwise_and(img, img, mask=mask_resized)
+            print("Applied table mask to image for ball detection")
+        else:
+            masked_img = img
+            print("No mask available, using original image for ball detection")
+
+        # Check if ShotStudio background exists before processing
+        if not os.path.exists(SHOTSTUDIO_BG_PATH):
+            print(f"ShotStudio background not found at: {SHOTSTUDIO_BG_PATH}")
+            return
+
+        # Process balls and create all visualizations using masked image for detection
+        orig_quad_points = [(pt[0], pt[1]) for pt in quad]
+        orig_img_size = (img.shape[1], img.shape[0])
+        process_balls_and_visualize(masked_img, quad, orig_quad_points, orig_img_size)
+    else:
+        show_detection_failed(img)
+
+    print("-" * 100)
+
+
+def get_balls_from_image(image_input):
+    """Extract ball centers and classes from an image using YOLO detection.
+
+    Args:
+        image_input: Either a file path (str) or image array (numpy.ndarray)
+    """
+    model = load_detection_model(MODEL_PATH)
+
+    # Run detector directly on image array
+    results = model(image_input)
+    boxes = results[0].boxes
+
+    if len(boxes) == 0:
+        return None, None
+
+    # Extract detection data
+    xyxy = boxes.xyxy.cpu().numpy()  # (N,4) x1 y1 x2 y2
+    confs = boxes.conf.cpu().numpy()  # (N,)
+    cls_ids = boxes.cls.cpu().numpy()  # (N,)
+
+    # Convert to center coordinates and apply thresholding
+    x1, y1, x2, y2 = xyxy.T
+    cx, cy = (x1 + x2) / 2, (y1 + y2) / 2
+    w, h = x2 - x1, y2 - y1
+
+    # Apply confidence and class filtering
+    valid_mask = confs >= CONF_THRESHOLD
+
+    if not valid_mask.any():
+        return None, None
+
+    # Build detections array: [cx, cy, w, h, conf, class]
+    dets = np.column_stack(
+        [
+            cx[valid_mask],
+            cy[valid_mask],
+            w[valid_mask],
+            h[valid_mask],
+            confs[valid_mask],
+            cls_ids[valid_mask],
+        ]
+    )
+
+    print(f"Total detections after post-processing: {len(dets)}")
+    print(f"Detection classes: {dets[:, 5] if len(dets) > 0 else 'none'}")
+
+    # Keep only balls (filter out non-ball detections)
+    balls = dets[dets[:, 5] != 4]
+    print(f"Balls after filtering class 4: {len(balls)}")
+    print(f"Ball classes: {balls[:, 5] if len(balls) > 0 else 'none'}")
+
+    if balls.size == 0:
+        print("No balls detected.")
+        return None, None
+
+    # Extract centers and classes
+    ballCenters = np.array([[b[0], b[1]] for b in balls])
+    ballClasses = balls[:, -1]
+    ballConfidences = balls[:, 4]
+
+    print(f"Ball confidences: {ballConfidences}")
+    print(f"Final ball count: {len(ballCenters)}")
+
+    return ballCenters, ballClasses
+
+
+def draw_ball_overlay_on_image(
+    ball_positions,
+    ball_classes,
+    background_img,
+    title="Image with Ball Detections",
+    use_circle_indicators=False,
+):
+    """Draw ball overlays on any image (ShotStudio, extracted table, or original image)."""
+    # Ball colors (BGR format) - ordered by class: ["black", "cue", "solid", "stripe"]
+    ball_colors = [
+        (0, 0, 0),  # Class 0: Black - Black
+        (255, 255, 255),  # Class 1: Cue - White
+        (0, 0, 255),  # Class 2: Solid - Red
+        (0, 255, 255),  # Class 3: Stripe - Yellow
+    ]
+
+    overlay = background_img.copy()
+
+    if use_circle_indicators:
+        # Use circle indicators like "Original image with Detections"
+        for position, cls in zip(ball_positions, ball_classes):
+            center = (int(round(position[0])), int(round(position[1])))
+            color = ball_colors[int(cls) % len(ball_colors)]
+
+            # Draw circle outline
+            cv2.circle(overlay, center, 15, color, 3)
+            # Add class label
+            cv2.putText(
+                overlay,
+                f"{int(cls)}",
+                (center[0] + 8, center[1] - 8),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.8,
+                color,
+                2,
+                cv2.LINE_AA,
+            )
+    else:
+        # Use filled circles for ShotStudio-style visualization
+        # Calculate ball size based on table dimensions
+        ball_dia_px = calculate_ball_pixel_size(background_img, table_size=78)
+        ball_dia_px = max(ball_dia_px, 8)
+
+        for position, cls in zip(ball_positions, ball_classes):
+            center = (int(round(position[0])), int(round(position[1])))
+            color = ball_colors[int(cls) % len(ball_colors)]
+
+            # Draw filled circle for ball
+            cv2.circle(overlay, center, ball_dia_px // 2, color, -1)
+            # Draw border
+            cv2.circle(overlay, center, ball_dia_px // 2, (0, 0, 0), 2)
+
+            # Add class label
+            cv2.putText(
+                overlay,
+                f"{int(cls)}",
+                (center[0] + 8, center[1] - 8),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.6,
+                color,
+                2,
+                cv2.LINE_AA,
+            )
+
+    cv2.imshow(title, overlay)
+    cv2.waitKey(0)
+    cv2.destroyAllWindows()
+    return overlay
+
+
+def transform_balls_for_extracted_table(ball_centers, quad):
+    """Transform ball positions to match the extracted table region coordinates."""
+    from utilities import order_quad
+
+    # Order the quad points properly
+    ordered_quad = order_quad(quad)
+
+    # Check if rotation is needed (same logic as extract_table_region)
+    top_length = np.linalg.norm(ordered_quad[1] - ordered_quad[0])
+    right_length = np.linalg.norm(ordered_quad[2] - ordered_quad[1])
+    needs_rotation = top_length > right_length * 1.75
+
+    # ShotStudio dimensions (always portrait: 840x1680)
+    out_w, out_h = 840, 1680
+
+    # Convert ball centers to homogeneous coordinates for transformation
+    ball_points = np.array(ball_centers, dtype=np.float32)
+
+    if needs_rotation:
+        # Table is landscape in image, needs rotation to portrait
+        # First warp to landscape (1680x840), then rotate to portrait
+        landscape_dst = np.array(
+            [[0, 0], [out_h - 1, 0], [out_h - 1, out_w - 1], [0, out_w - 1]],
+            dtype=np.float32,
+        )
+
+        h_landscape = cv2.getPerspectiveTransform(ordered_quad, landscape_dst)
+
+        # Add 90° CCW rotation: landscape (1680x840) -> portrait (840x1680)
+        rot = np.array([[0, 1, 0], [-1, 0, out_h - 1], [0, 0, 1]], np.float32)
+        h_final = rot @ h_landscape
+    else:
+        # Table is already portrait in image, direct warp
+        portrait_dst = np.array(
+            [[0, 0], [out_w - 1, 0], [out_w - 1, out_h - 1], [0, out_h - 1]],
+            dtype=np.float32,
+        )
+
+        h_final = cv2.getPerspectiveTransform(ordered_quad, portrait_dst)
+
+    # Transform the ball points
+    ball_points_homogeneous = np.ones((len(ball_points), 3), dtype=np.float32)
+    ball_points_homogeneous[:, :2] = ball_points
+
+    # Apply transformation
+    transformed_homogeneous = (h_final @ ball_points_homogeneous.T).T
+
+    # Convert back to 2D coordinates
+    transformed_points = (
+        transformed_homogeneous[:, :2] / transformed_homogeneous[:, 2:3]
+    )
+
+    return transformed_points
+
+
+def extract_table_region(original_img, quad):
+    """Extract table region using quad and transform to portrait mode (840x1680)."""
+    from utilities import order_quad
+
+    # Order the quad points properly
+    ordered_quad = order_quad(quad)
+
+    # Check if rotation is needed based on quad dimensions (same logic as C++)
+    top_length = np.linalg.norm(ordered_quad[1] - ordered_quad[0])
+    right_length = np.linalg.norm(ordered_quad[2] - ordered_quad[1])
+    needs_rotation = top_length > right_length * 1.75
+
+    # ShotStudio dimensions (always portrait: 840x1680)
+    out_w, out_h = 840, 1680
+
+    if needs_rotation:
+        # Table is landscape in image, needs rotation to portrait
+        # First warp to landscape (1680x840), then rotate to portrait
+        landscape_dst = np.array(
+            [[0, 0], [out_h - 1, 0], [out_h - 1, out_w - 1], [0, out_w - 1]],
+            dtype=np.float32,
+        )
+
+        h_landscape = cv2.getPerspectiveTransform(ordered_quad, landscape_dst)
+
+        # Add 90° CCW rotation: landscape (1680x840) -> portrait (840x1680)
+        rot = np.array([[0, 1, 0], [-1, 0, out_h - 1], [0, 0, 1]], np.float32)
+        h_final = rot @ h_landscape
+        extracted = cv2.warpPerspective(original_img, h_final, (out_w, out_h))
+    else:
+        # Table is already portrait in image, direct warp
+        portrait_dst = np.array(
+            [[0, 0], [out_w - 1, 0], [out_w - 1, out_h - 1], [0, out_h - 1]],
+            dtype=np.float32,
+        )
+
+        h = cv2.getPerspectiveTransform(ordered_quad, portrait_dst)
+        extracted = cv2.warpPerspective(original_img, h, (out_w, out_h))
+
+    print(
+        f"Table extraction: needs_rotation={needs_rotation}, top_length={top_length:.1f}, right_length={right_length:.1f}"
+    )
+    return extracted
 
 
 if __name__ == "__main__":

@@ -46,21 +46,21 @@ class BallDetectionController extends ChangeNotifier {
         throw Exception('Failed to decode captured image');
       }
 
-      // Step 2: Convert to RGBA format (following test pattern)
-      final img.Image rgbaImage = decodedImage.convert(numChannels: 4);
-      final Uint8List rgbaBytes = rgbaImage.getBytes(order: img.ChannelOrder.rgba);
+      // Step 2: Convert to BGRA format (for C++ BGRA functions)
+      final img.Image bgraImage = decodedImage.convert(numChannels: 4);
+      final Uint8List bgraBytes = bgraImage.getBytes(order: img.ChannelOrder.bgra);
 
       // Step 3: Store image dimensions for coordinate transformation
       _capturedImageSize = ui.Size(
-        rgbaImage.width.toDouble(),
-        rgbaImage.height.toDouble(),
+        bgraImage.width.toDouble(),
+        bgraImage.height.toDouble(),
       );
 
       // Step 4: Run ball detection (following test pattern)
       final detections = await _ballDetectionService.detectBallsFromBytes(
-        rgbaBytes,
-        rgbaImage.width,
-        rgbaImage.height,
+        bgraBytes,
+        bgraImage.width,
+        bgraImage.height,
       );
 
       // Filter detections by confidence (extra safety, native code should already filter)
@@ -91,15 +91,15 @@ class BallDetectionController extends ChangeNotifier {
         throw Exception('Failed to decode captured image');
       }
 
-      // Step 2: Convert to RGBA format (following test pattern)
-      final img.Image rgbaImage = decodedImage.convert(numChannels: 4);
-      final Uint8List rgbaBytes = rgbaImage.getBytes(order: img.ChannelOrder.rgba);
+      // Step 2: Convert to BGRA format (for C++ BGRA functions)
+      final img.Image bgraImage = decodedImage.convert(numChannels: 4);
+      final Uint8List bgraBytes = bgraImage.getBytes(order: img.ChannelOrder.bgra);
 
       // Step 3: Run table detection on the image
       final tableResult = await _tableDetectionService.detectTableFromBytes(
-        rgbaBytes,
-        rgbaImage.width,
-        rgbaImage.height,
+        bgraBytes,
+        bgraImage.width,
+        bgraImage.height,
       );
 
       _tableDetectionResult = tableResult;

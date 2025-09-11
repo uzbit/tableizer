@@ -64,6 +64,33 @@ WarpResult warpTable(const cv::Mat& bgrImg, const std::vector<cv::Point2f>& quad
 // Function to order the quad points counter-clockwise
 vector<Point2f> orderQuad(const vector<Point2f>& pts);
 
+// Coordinate transformation functions
+struct TransformationResult {
+    std::vector<cv::Point2f> transformedPoints;
+    bool needsRotation;
+};
+
+// Transform points using quad-to-rectangle perspective transformation
+TransformationResult transformPointsUsingQuad(
+    const std::vector<cv::Point2f>& points,
+    const std::vector<cv::Point2f>& quadPoints,
+    cv::Size imageSize,
+    cv::Size displaySize
+);
+
+// Helper functions for perspective transformation
+cv::Point2f perspectiveTransform(
+    const cv::Point2f& point,
+    const std::vector<cv::Point2f>& srcQuad,
+    const std::vector<cv::Point2f>& dstRect
+);
+
+cv::Point2f findUVInQuad(
+    const cv::Point2f& point,
+    const cv::Point2f& p0, const cv::Point2f& p1,
+    const cv::Point2f& p2, const cv::Point2f& p3
+);
+
 static const std::string base64_chars =
     "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
     "abcdefghijklmnopqrstuvwxyz"

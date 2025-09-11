@@ -8,7 +8,8 @@ from pathlib import Path
 img_path = "../../../data/Photos-1-001/P_20250718_205820.jpg"  # change to your image
 pt_model_path = "best.pt"
 onnx_model_path = "best.onnx"
-imgsz = 800
+imgsz = 1280
+
 
 # --- Load and preprocess image ---
 def load_image(path, size):
@@ -19,17 +20,22 @@ def load_image(path, size):
     resized = cv2.resize(img, (new_w, new_h), interpolation=cv2.INTER_LINEAR)
     padded = np.full((size, size, 3), 114, dtype=np.uint8)
     pad_w, pad_h = (size - new_w) // 2, (size - new_h) // 2
-    padded[pad_h:pad_h+new_h, pad_w:pad_w+new_w] = resized
+    padded[pad_h : pad_h + new_h, pad_w : pad_w + new_w] = resized
     img_rgb = cv2.cvtColor(padded, cv2.COLOR_BGR2RGB)
     tensor = img_rgb.astype(np.float32).transpose(2, 0, 1) / 255.0  # CHW
     return tensor[None], r, pad_w, pad_h, (h0, w0)
 
+
 img_tensor, r, pad_w, pad_h, original_shape = load_image(img_path, imgsz)
 
 # --- Run PyTorch model ---
-pt_model = torch.hub.load('ultralytics/yolov9', 'custom', path=pt_model_path)
+pt_model = torch.hub.load("ultralytics/yolov9", "custom", path=pt_model_path)
 pt_results = pt_model(img_path, size=imgsz)
-pt_boxes = pt_results.pandas().xyxy[0][['xmin', 'ymin', 'xmax', 'ymax', 'confidence', 'class']].values
+pt_boxes = (
+    pt_results.pandas()
+    .xyxy[0][["xmin", "ymin", "xmax", "ymax", "confidence", "class"]]
+    .values
+)
 
 # --- Run ONNX model ---
 ort_sess = ort.InferenceSession(onnx_model_path)
@@ -58,8 +64,11 @@ for i in range(num_preds):
 
 # --- Return both sets of boxes for display ---
 import pandas as pd
+
 pt_df = pd.DataFrame(pt_boxes, columns=["x1", "y1", "x2", "y2", "conf", "class"])
 onnx_df = pd.DataFrame(boxes, columns=["x1", "y1", "x2", "y2", "conf", "class"])
 
-import ace_tools as tools; tools.display_dataframe_to_user(name="ONNX Model Detections", dataframe=onnx_df)
+import ace_tools as tools
+
+tools.display_dataframe_to_user(name="ONNX Model Detections", dataframe=onnx_df)
 pt_df.head()  # return PyTorch results inline

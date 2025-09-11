@@ -17,7 +17,7 @@ class CellularTableDetector {
    private:
     Vec3f getMedianLab(const Mat &labImg, const Rect &cellRect);
     void precomputeLabCache(const Mat &labImg, int rows, int cols);
-    double deltaE2000(const Vec3f &lab1, const Vec3f &lab2);
+    double colorDelta(const Vec3f &lab1, const Vec3f &lab2);
     double calculateAdaptiveThreshold(const Mat &labImg, const Vec3f &refLab);
     Vec3f calculateMultiReferenceColor(const Mat &labImg, int rows, int cols);
     Vec3f calculateMedianColor(const vector<Vec3f> &colors);

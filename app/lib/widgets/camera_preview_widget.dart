@@ -51,6 +51,7 @@ class CameraPreviewWidget extends StatelessWidget {
             final scaledPoints = quadPoints.map((p) {
               return Offset(p.dx * scale + dx, p.dy * scale + dy);
             }).toList();
+            
 
             return CustomPaint(
               size: previewSize,

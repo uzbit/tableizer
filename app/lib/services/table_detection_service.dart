@@ -39,18 +39,25 @@ typedef DetectTableBgraC = Pointer<Utf8> Function(Pointer<Uint8> imageBytes, Int
 typedef DetectTableBgraDart = Pointer<Utf8> Function(Pointer<Uint8> imageBytes,
     int width, int height, int stride, int rotationDegrees, Pointer<Utf8> debugImagePath);
 
-typedef DetectTableRgbaC = Pointer<Utf8> Function(Pointer<Uint8> imageBytes, Int32 width,
-    Int32 height, Int32 channels, Int32 stride);
-typedef DetectTableRgbaDart = Pointer<Utf8> Function(Pointer<Uint8> imageBytes,
-    int width, int height, int channels, int stride);
 
 typedef FreeBgraDetectionResultC = Void Function(Pointer<DetectionResult> result);
 typedef FreeBgraDetectionResultDart = void Function(Pointer<DetectionResult> result);
 
+typedef TransformPointsUsingQuadC = Pointer<Utf8> Function(
+    Pointer<Float> pointsData, Int32 pointsCount,
+    Pointer<Float> quadData, Int32 quadCount,
+    Int32 imageWidth, Int32 imageHeight,
+    Int32 displayWidth, Int32 displayHeight);
+typedef TransformPointsUsingQuadDart = Pointer<Utf8> Function(
+    Pointer<Float> pointsData, int pointsCount,
+    Pointer<Float> quadData, int quadCount,
+    int imageWidth, int imageHeight,
+    int displayWidth, int displayHeight);
+
 class TableDetectionService {
   late final DetectTableBgraDart detectTableBgra;
-  late final DetectTableRgbaDart detectTableRgba;
   late final FreeBgraDetectionResultDart freeBgraDetectionResult;
+  late final TransformPointsUsingQuadDart transformPointsUsingQuad;
 
   final StreamController<TableDetectionResult> _detectionsController =
       StreamController<TableDetectionResult>.broadcast();
@@ -92,11 +99,11 @@ class TableDetectionService {
     detectTableBgra = dylib
         .lookup<NativeFunction<DetectTableBgraC>>('detect_table_bgra')
         .asFunction();
-    detectTableRgba = dylib
-        .lookup<NativeFunction<DetectTableRgbaC>>('detect_table_rgba')
-        .asFunction();
     freeBgraDetectionResult = dylib
         .lookup<NativeFunction<FreeBgraDetectionResultC>>('free_bgra_detection_result')
+        .asFunction();
+    transformPointsUsingQuad = dylib
+        .lookup<NativeFunction<TransformPointsUsingQuadC>>('transform_points_using_quad')
         .asFunction();
   }
 
@@ -125,8 +132,8 @@ class TableDetectionService {
       final Uint8List nativeBytesList = nativeBytes.asTypedList(imageBytes.length);
       nativeBytesList.setAll(0, imageBytes);
 
-      // Call native function (4 channels for RGBA, stride = width * 4)
-      final Pointer<Utf8> resultPtr = detectTableRgba(nativeBytes, width, height, 4, width * 4);
+      // Call native function (BGRA format, stride = width * 4)
+      final Pointer<Utf8> resultPtr = detectTableBgra(nativeBytes, width, height, width * 4, 0, nullptr);
       
       // Free native memory immediately
       malloc.free(nativeBytes);
@@ -146,7 +153,7 @@ class TableDetectionService {
 
       final List<dynamic> quadPointsJson = parsed['quad_points'] ?? [];
       final List<Offset> quadPoints = quadPointsJson.map<Offset>((point) {
-        return Offset(point['x'].toDouble(), point['y'].toDouble());
+        return Offset(point[0].toDouble(), point[1].toDouble());
       }).toList();
 
       return TableDetectionResult(
@@ -155,6 +162,67 @@ class TableDetectionService {
       );
     } catch (e) {
       print('Error in detectTableFromBytes: $e');
+      return null;
+    }
+  }
+
+  /// Transform points using quad-to-rectangle perspective transformation via C++ FFI
+  List<Offset>? transformPoints(
+    List<Offset> points,
+    List<Offset> quadPoints,
+    Size imageSize,
+    Size displaySize,
+  ) {
+    if (!_isInitialized || quadPoints.length != 4 || points.isEmpty) {
+      return null;
+    }
+
+    try {
+      // Allocate native memory for points
+      final Pointer<Float> pointsPtr = malloc<Float>(points.length * 2);
+      for (int i = 0; i < points.length; i++) {
+        pointsPtr[i * 2] = points[i].dx;
+        pointsPtr[i * 2 + 1] = points[i].dy;
+      }
+
+      // Allocate native memory for quad points
+      final Pointer<Float> quadPtr = malloc<Float>(8); // 4 points * 2 coordinates
+      for (int i = 0; i < 4; i++) {
+        quadPtr[i * 2] = quadPoints[i].dx;
+        quadPtr[i * 2 + 1] = quadPoints[i].dy;
+      }
+
+      // Call native function
+      final Pointer<Utf8> resultPtr = transformPointsUsingQuad(
+        pointsPtr, points.length,
+        quadPtr, 4,
+        imageSize.width.toInt(), imageSize.height.toInt(),
+        displaySize.width.toInt(), displaySize.height.toInt(),
+      );
+
+      // Free native memory
+      malloc.free(pointsPtr);
+      malloc.free(quadPtr);
+
+      if (resultPtr == nullptr) {
+        return null;
+      }
+
+      final String jsonResult = resultPtr.toDartString();
+      final Map<String, dynamic> parsed = json.decode(jsonResult);
+      
+      if (parsed.containsKey('error')) {
+        print('Transform points error: ${parsed['error']}');
+        return null;
+      }
+
+      final List<dynamic> transformedPointsJson = parsed['transformed_points'] ?? [];
+      return transformedPointsJson.map<Offset>((point) {
+        return Offset(point['x'].toDouble(), point['y'].toDouble());
+      }).toList();
+
+    } catch (e) {
+      print('Error in transformPoints: $e');
       return null;
     }
   }

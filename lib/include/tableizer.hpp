@@ -50,13 +50,10 @@ struct DetectionResult {
 __attribute__((visibility("default"))) __attribute__((used)) void* initialize_detector(
     const char* model_path);
 
-__attribute__((visibility("default"))) __attribute__((used)) const char* detect_objects_rgba(
-    void* detector_ptr, const unsigned char* image_bytes, int width, int height, int channels);
+__attribute__((visibility("default"))) __attribute__((used)) const char* detect_objects_bgra(
+    void* detector_ptr, const unsigned char* image_bytes, int width, int height, int stride);
 
-__attribute__((visibility("default"))) __attribute__((used)) const char* detect_table_rgba(
-    const unsigned char* image_bytes, int width, int height, int channels, int stride);
-
-// High-performance, zero-copy alternative to detect_table_rgba.
+// High-performance table detection with BGRA input format.
 // Returns JSON string with table detection results
 __attribute__((visibility("default"))) __attribute__((used)) const char* detect_table_bgra(
     const unsigned char* image_bytes, int width, int height, int stride,
@@ -68,6 +65,13 @@ __attribute__((visibility("default"))) __attribute__((used)) void free_bgra_dete
 
 __attribute__((visibility("default"))) __attribute__((used)) void release_detector(
     void* detector_ptr);
+
+// Coordinate transformation function
+__attribute__((visibility("default"))) __attribute__((used)) const char* transform_points_using_quad(
+    const float* points_data, int points_count,
+    const float* quad_data, int quad_count,
+    int image_width, int image_height,
+    int display_width, int display_height);
 
 #ifdef __cplusplus
 }

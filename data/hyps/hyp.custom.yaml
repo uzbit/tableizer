@@ -22,15 +22,17 @@ box: 0.1 # box loss gain
 cls: 0.5 # cls loss gain
 dfl: 1.5 # dfl loss gain
 kobj: 0.5 # obj loss gain (scale with pixels)
-iou: 0.75 # IoU training threshold
+conf: 0.4 # validation confidence threshold (higher than training)
+iou: 0.7 # IoU training threshold
 degrees: 0.0 # image rotation (+/- deg)
-translate: 0.05 # image translation (+/- fraction)
-scale: 0.25 # image scale (+/- gain)
+translate: 0.02 # image translation (+/- fraction)
+scale: 0.15 # image scale (+/- gain)
 shear: 0.0 # image shear (+/- deg)
 perspective: 0.0 # image perspective (+/- fraction), range 0-0.001
 flipud: 0.0 # image flip up-down (probability)
-fliplr: 0.5 # image flip left-right (probability)
-mosaic: 0.5 # image mosaic (probability)
+fliplr: 0.0 # image flip left-right (probability)
+mosaic: 0.3 # image mosaic (probability)
 mixup: 0.0 # image mixup (probability)
-copy_paste: 0.5 # segment copy-paste (probability)
-max_det: 16 # maximum number of detections
+copy_paste: 0.0 # segment copy-paste (probability)
+max_det: 20 # maximum number of detections
+close_mosaic: 10 # disable mosaic in final epochs

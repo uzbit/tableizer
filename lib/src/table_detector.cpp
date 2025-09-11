@@ -14,18 +14,18 @@ CellularTableDetector::CellularTableDetector(int resizeHeight, int cellSize, dou
 
 Vec3f CellularTableDetector::getMedianLab(const Mat &labImg, const Rect &cellRect) {
     // Use systematic grid sampling for more consistent results
+    const int SAMPLE_STRIDE = 4;
     Mat cell = labImg(cellRect);
-    
+
     if (cell.rows == 0 || cell.cols == 0) {
         return Vec3f(0, 0, 0);
     }
 
     vector<float> L, A, B;
-    
+
     // Use systematic grid sampling instead of random sampling
-    int stepR = std::max(1, cell.rows / 10);  // Sample every stepR rows
-    int stepC = std::max(1, cell.cols / 10);  // Sample every stepC cols
-    
+    int stepR = SAMPLE_STRIDE;
+    int stepC = SAMPLE_STRIDE;
     for (int r = 0; r < cell.rows; r += stepR) {
         for (int c = 0; c < cell.cols; c += stepC) {
             const Vec3f &pixel = cell.at<Vec3f>(r, c);
@@ -37,7 +37,7 @@ Vec3f CellularTableDetector::getMedianLab(const Mat &labImg, const Rect &cellRec
 
     if (L.empty()) {
         // Fallback to center pixel if grid sampling failed
-        const Vec3f &centerPixel = cell.at<Vec3f>(cell.rows/2, cell.cols/2);
+        const Vec3f &centerPixel = cell.at<Vec3f>(cell.rows / 2, cell.cols / 2);
         return centerPixel;
     }
 
@@ -88,7 +88,7 @@ void CellularTableDetector::detect(const Mat &imgBgra, Mat &mask, Mat &debugDraw
 
     Mat small_bgr;
     float scale = (float)resizeHeight / rotated_bgra.rows;
-    resize(rotated_bgra, small_bgr, Size(0, 0), scale, scale, INTER_AREA);
+    resize(rotated_bgra, small_bgr, Size(0, 0), scale, scale, INTER_LINEAR);
     debugDraw = small_bgr.clone();
 
     // --- Single, Upfront LAB Conversion ---
@@ -141,7 +141,7 @@ void CellularTableDetector::detect(const Mat &imgBgra, Mat &mask, Mat &debugDraw
 
         // Get LAB value from cache instead of recalculating
         Vec3f cellLab = labCache[r][c];
-        if (deltaE2000(refLab, cellLab) < adaptiveThresh) {
+        if (colorDelta(refLab, cellLab) < adaptiveThresh) {
             inside.at<uchar>(r, c) = 1;
             for (int dr = -1; dr <= 1; ++dr) {
                 for (int dc = -1; dc <= 1; ++dc) {
@@ -175,58 +175,11 @@ void CellularTableDetector::drawCells(Mat &canvas, const Mat &insideMask) {
     }
 }
 
-double CellularTableDetector::deltaE2000(const Vec3f &lab1, const Vec3f &lab2) {
-    double L1 = lab1[0], a1 = lab1[1], b1 = lab1[2];
-    double L2 = lab2[0], a2 = lab2[1], b2 = lab2[2];
-
-    double c1 = sqrt(a1 * a1 + b1 * b1);
-    double c2 = sqrt(a2 * a2 + b2 * b2);
-    double cBar = (c1 + c2) / 2.0;
-
-    double G = 0.5 * (1 - sqrt(pow(cBar, 7) / (pow(cBar, 7) + pow(25.0, 7))));
-    double a1p = (1 + G) * a1;
-    double a2p = (1 + G) * a2;
-    double c1p = sqrt(a1p * a1p + b1 * b1);
-    double c2p = sqrt(a2p * a2p + b2 * b2);
-    double cBarP = (c1p + c2p) / 2.0;
-
-    double h1p = atan2(b1, a1p) * 180.0 / M_PI;
-    if (h1p < 0) h1p += 360;
-    double h2p = atan2(b2, a2p) * 180.0 / M_PI;
-    if (h2p < 0) h2p += 360;
-
-    double dLp = L2 - L1;
-    double dCp = c2p - c1p;
-    double dhp = h2p - h1p;
-    if (c1p * c2p != 0) {
-        if (abs(dhp) > 180) {
-            dhp -= 360 * (dhp > 0 ? 1 : -1);
-        }
-    } else {
-        dhp = 0;
-    }
-
-    double dHp = 2 * sqrt(c1p * c2p) * sin(dhp * M_PI / 180.0 / 2.0);
-
-    double LBarP = (L1 + L2) / 2.0;
-    double hBarP = h1p + dhp / 2.0;
-    if (c1p * c2p != 0 && abs(h1p - h2p) > 180) {
-        hBarP = (h1p + h2p + 360) / 2.0;
-    }
-    if (hBarP >= 360) hBarP -= 360;
-
-    double T = 1 - 0.17 * cos((hBarP - 30) * M_PI / 180.0) +
-               0.24 * cos((2 * hBarP) * M_PI / 180.0) + 0.32 * cos((3 * hBarP + 6) * M_PI / 180.0) -
-               0.20 * cos((4 * hBarP - 63) * M_PI / 180.0);
-
-    double Sl = 1 + (0.015 * pow(LBarP - 50, 2)) / sqrt(20 + pow(LBarP - 50, 2));
-    double Sc = 1 + 0.045 * cBarP;
-    double Sh = 1 + 0.015 * cBarP * T;
-    double Rt = -2 * sqrt(pow(cBarP, 7) / (pow(cBarP, 7) + pow(25.0, 7))) *
-                sin(60 * exp(-pow((hBarP - 275) / 25.0, 2)) * M_PI / 180.0);
-
-    return sqrt(pow(dLp / Sl, 2) + pow(dCp / Sc, 2) + pow(dHp / Sh, 2) +
-                Rt * (dCp / Sc) * (dHp / Sh));
+double CellularTableDetector::colorDelta(const Vec3f &lab1, const Vec3f &lab2) {
+    double dL = lab1[0] - lab2[0];
+    double da = lab1[1] - lab2[1];
+    double db = lab1[2] - lab2[2];
+    return sqrt(dL * dL + da * da + db * db);
 }
 
 vector<Point2f> CellularTableDetector::getQuadFromMask(const Mat &inside) {
@@ -294,11 +247,11 @@ double CellularTableDetector::calculateAdaptiveThreshold(const Mat &labImg, cons
     vector<double> deltaEs;
     deltaEs.reserve(100);
 
-    // Define a reasonable sampling area around center (limit to ~1/3 of image size)
-    int maxRadius = std::min({rows/6, cols/6, 15});  // Reasonable table area, not entire image
+    // Define a reasonable sampling area around center (limit to ~1/SAMPLING_AREA_DIVISOR of image size)
+    int maxRadius = std::min({rows / 6, cols / 6, 15});  // Reasonable table area, not entire image
 
     // Sample in a grid pattern within the table area instead of rings
-    for (int dr = -maxRadius; dr <= maxRadius; dr += 2) {  // Step by 2 for efficiency
+    for (int dr = -maxRadius; dr <= maxRadius; dr += 2) {  // Step by SAMPLING_STEP for efficiency
         for (int dc = -maxRadius; dc <= maxRadius; dc += 2) {
             int sampleR = centerR + dr;
             int sampleC = centerC + dc;
@@ -307,7 +260,7 @@ double CellularTableDetector::calculateAdaptiveThreshold(const Mat &labImg, cons
             if (sampleR >= 0 && sampleR < rows && sampleC >= 0 && sampleC < cols &&
                 !(dr == 0 && dc == 0)) {
                 Vec3f sampleLab = labCache[sampleR][sampleC];
-                double deltaE = deltaE2000(refLab, sampleLab);
+                double deltaE = colorDelta(refLab, sampleLab);
                 deltaEs.push_back(deltaE);
             }
         }
@@ -321,9 +274,9 @@ double CellularTableDetector::calculateAdaptiveThreshold(const Mat &labImg, cons
     sort(deltaEs.begin(), deltaEs.end());
 
     size_t n = deltaEs.size();
-    double q25 = deltaEs[n / 4];      // 25th percentile
-    double median = deltaEs[n / 2];   // 50th percentile
-    double q75 = deltaEs[3 * n / 4];  // 75th percentile
+    double q25 = deltaEs[n / 4];      // Q1_PERCENTILE percentile
+    double median = deltaEs[n / 2];   // MEDIAN_PERCENTILE percentile
+    double q75 = deltaEs[3 * n / 4];  // Q3_PERCENTILE percentile
     double iqr = q75 - q25;           // Interquartile range
 
     // Calculate mean and standard deviation
@@ -375,9 +328,9 @@ Vec3f CellularTableDetector::calculateMultiReferenceColor(const Mat &labImg, int
     int centerC = cols / 2;
 
     vector<Vec3f> candidateColors;
-    candidateColors.reserve(25);  // Up to 5x5 grid
+    candidateColors.reserve(25);  // Up to GRID_SIZE x GRID_SIZE grid
 
-    // Sample in a systematic 5x5 grid around center (adaptive to image size)
+    // Sample in a systematic GRID_SIZE x GRID_SIZE grid around center (adaptive to image size)
     int maxOffset = std::min({3, rows / 4, cols / 4});  // Limit offset based on image size
 
     for (int dr = -maxOffset; dr <= maxOffset; dr++) {
@@ -402,32 +355,32 @@ Vec3f CellularTableDetector::calculateMultiReferenceColor(const Mat &labImg, int
     return calculateMedianColor(candidateColors);
 }
 
-Vec3f CellularTableDetector::calculateMedianColor(const vector<Vec3f>& colors) {
+Vec3f CellularTableDetector::calculateMedianColor(const vector<Vec3f> &colors) {
     if (colors.empty()) {
         return Vec3f(50, 0, 0);  // Default neutral
     }
-    
+
     if (colors.size() == 1) {
         return colors[0];
     }
-    
+
     // Calculate median for each channel independently
     vector<float> L, A, B;
     L.reserve(colors.size());
-    A.reserve(colors.size()); 
+    A.reserve(colors.size());
     B.reserve(colors.size());
-    
-    for (const auto& color : colors) {
+
+    for (const auto &color : colors) {
         L.push_back(color[0]);
         A.push_back(color[1]);
         B.push_back(color[2]);
     }
-    
+
     // Find medians
     size_t mid = colors.size() / 2;
     nth_element(L.begin(), L.begin() + mid, L.end());
     nth_element(A.begin(), A.begin() + mid, A.end());
     nth_element(B.begin(), B.begin() + mid, B.end());
-    
+
     return Vec3f(L[mid], A[mid], B[mid]);
 }

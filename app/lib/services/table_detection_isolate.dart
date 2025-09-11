@@ -63,27 +63,14 @@ void tableDetectionIsolateEntry(List<dynamic> args) async {
           // pathPtr = debugImagePath.toNativeUtf8();
           pathPtr = nullptr;
 
-          int rotationDegrees = 0;
-          switch (image.rotation) {
-            case InputAnalysisImageRotation.rotation90deg:
-              rotationDegrees = 90;
-              break;
-            case InputAnalysisImageRotation.rotation180deg:
-              rotationDegrees = 180;
-              break;
-            case InputAnalysisImageRotation.rotation270deg:
-              rotationDegrees = 270;
-              break;
-            default:
-              rotationDegrees = 0;
-          }
+          // No rotation - process image as-is
 
           resultPtr = detectTableBgra(
             imagePtr,
             image.width,
             image.height,
             plane.bytesPerRow,
-            rotationDegrees,
+            0,  // No rotation - process image as-is
             pathPtr,
           );
 
@@ -97,18 +84,36 @@ void tableDetectionIsolateEntry(List<dynamic> args) async {
               print('[TABLE_ISOLATE] Error from native: ${parsed['error']}');
             } else {
               final List<dynamic> quadPointsJson = parsed['quad_points'] ?? [];
-              final quadPoints = quadPointsJson.map<Offset>((point) {
-                return Offset(point['x'].toDouble(), point['y'].toDouble());
+              var quadPoints = quadPointsJson.map<Offset>((point) {
+                return Offset(point[0].toDouble(), point[1].toDouble());
               }).toList();
               
-              // Send the complete result object back
-              sendPort.send(TableDetectionResult(
-                quadPoints,
-                Size(
-                  (parsed['image_width'] ?? image.width).toDouble(),
-                  (parsed['image_height'] ?? image.height).toDouble(),
-                ),
-              ));
+              final imageWidth = (parsed['image_width'] ?? image.width).toDouble();
+              final imageHeight = (parsed['image_height'] ?? image.height).toDouble();
+              
+              // Since C++ FFI now processes image without rotation, but camera is rotated 90°,
+              // we need to rotate coordinates for display
+              if (image.rotation == InputAnalysisImageRotation.rotation90deg) {
+                quadPoints = quadPoints.map((point) {
+                  // 90° clockwise rotation: (x,y) -> (height-y, x)
+                  return Offset(imageHeight - point.dy, point.dx);
+                }).toList();
+                
+                // Swap dimensions for rotated display
+                final rotatedImageSize = Size(imageHeight, imageWidth);
+                
+                // Send the complete result object back
+                sendPort.send(TableDetectionResult(
+                  quadPoints,
+                  rotatedImageSize,
+                ));
+              } else {
+                // No rotation needed
+                sendPort.send(TableDetectionResult(
+                  quadPoints,
+                  Size(imageWidth, imageHeight),
+                ));
+              }
             }
           }
         } catch (e) {

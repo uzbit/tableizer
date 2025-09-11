@@ -10,12 +10,14 @@ class TableBallPainter extends CustomPainter {
   final ui.Size? capturedImageSize;
   final ui.Size tableDisplaySize;
   final TableDetectionResult? tableDetectionResult;
+  final List<Offset>? Function(List<Offset>, List<Offset>, ui.Size, ui.Size)? transformPointsCallback;
 
   TableBallPainter({
     required this.detections,
     required this.capturedImageSize,
     required this.tableDisplaySize,
     this.tableDetectionResult,
+    this.transformPointsCallback,
   });
 
   @override
@@ -24,14 +26,28 @@ class TableBallPainter extends CustomPainter {
 
     // If we have table detection results, use proper coordinate transformation
     if (tableDetectionResult != null && tableDetectionResult!.points.length == 4) {
-      // Use simple coordinate mapping that matches the table orientation
-      // The captured image quad points map to the display table rectangle
-      final transformedPositions = _transformPointsUsingQuad(
-        detections.map((d) => Offset(d.centerX, d.centerY)).toList(),
-        tableDetectionResult!.points,
-        capturedImageSize!,
-        tableDisplaySize,
-      );
+      // Use C++ FFI transformation if available, otherwise fallback to local implementation
+      final ballPositions = detections.map((d) => Offset(d.centerX, d.centerY)).toList();
+      
+      List<Offset> transformedPositions;
+      if (transformPointsCallback != null) {
+        // Use C++ FFI transformation
+        final result = transformPointsCallback!(
+          ballPositions,
+          tableDetectionResult!.points,
+          capturedImageSize!,
+          tableDisplaySize,
+        );
+        transformedPositions = result ?? ballPositions; // fallback to original if null
+      } else {
+        // Fallback to local Dart implementation
+        transformedPositions = _transformPointsUsingQuad(
+          ballPositions,
+          tableDetectionResult!.points,
+          capturedImageSize!,
+          tableDisplaySize,
+        );
+      }
 
       // Draw balls at transformed positions  
       for (int i = 0; i < detections.length; i++) {

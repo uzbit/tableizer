@@ -30,7 +30,7 @@ struct BallDetector::Impl {
         : env(ORT_LOGGING_LEVEL_WARNING, "ball_detector"),
           session(env, modelPath.c_str(), Ort::SessionOptions{nullptr}) {
         LOGI("ONNX session created successfully for model: %s", modelPath.c_str());
-        
+
         size_t num_input_nodes = session.GetInputCount();
         input_node_names_str.reserve(num_input_nodes);
         for (size_t i = 0; i < num_input_nodes; i++) {
@@ -54,7 +54,7 @@ BallDetector::BallDetector(const string& modelPath) : pimpl(make_unique<Impl>(mo
 BallDetector::~BallDetector() = default;
 
 vector<Detection> BallDetector::detect(const Mat& image, float confThreshold, float iouThreshold) {
-    constexpr int kTarget = 1280;
+    constexpr int kTarget = 1280;  // MUST MATCH BALL DETECTION "imgsz" in model_table.py
     constexpr int num_classes = 4;
 
     int img_w = image.cols, img_h = image.rows;

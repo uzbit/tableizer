@@ -3,18 +3,21 @@ import 'dart:ui' as ui;
 import '../models/ball_detection_result.dart';
 import '../models/table_detection_result.dart';
 import '../widgets/table_ball_painter.dart';
+import '../services/table_detection_service.dart';
 import 'settings_screen.dart';
 
 class TableResultsScreen extends StatelessWidget {
   final List<BallDetectionResult> ballDetections;
   final ui.Size? capturedImageSize;
   final TableDetectionResult? tableDetectionResult;
+  final TableDetectionService? tableDetectionService;
 
   const TableResultsScreen({
     super.key,
     required this.ballDetections,
     this.capturedImageSize,
     this.tableDetectionResult,
+    this.tableDetectionService,
   });
 
   @override
@@ -77,6 +80,7 @@ class TableResultsScreen extends StatelessWidget {
                         capturedImageSize: capturedImageSize,
                         tableDisplaySize: Size(tableWidth, tableHeight),
                         tableDetectionResult: tableDetectionResult,
+                        transformPointsCallback: tableDetectionService?.transformPoints,
                       ),
                     ),
                   ),
