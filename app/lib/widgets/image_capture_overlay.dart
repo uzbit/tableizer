@@ -348,8 +348,9 @@ class _BgraImageWidget extends StatelessWidget {
     print('[_BgraImageWidget] First 16 bytes: ${bgra.sublist(0, 16)}');
 
     // The native pipeline is now standardized to always output RGBA.
-    const pixelFormat = ui.PixelFormat.rgba8888;
-    print('[_BgraImageWidget] Using pixel format: RGBA (all platforms)');
+    // On iOS, however, it seems the channels are BGRA.
+    final pixelFormat = Platform.isIOS ? ui.PixelFormat.bgra8888 : ui.PixelFormat.rgba8888;
+    print('[_BgraImageWidget] Using pixel format: ${Platform.isIOS ? "BGRA (iOS)" : "RGBA (Android)"}');
 
     final completer = Completer<ui.Image>();
     ui.decodeImageFromPixels(
