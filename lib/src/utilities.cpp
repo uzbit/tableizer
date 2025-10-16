@@ -199,119 +199,36 @@ TransformationResult transformPointsUsingQuad(
     result.needsRotation = needsRotation;
     result.orientation = orientation;
 
-    // Set up destination corners based on whether rotation is needed
-    std::vector<cv::Point2f> dstCorners;
-
+    // Set up destination corners and compute homography
+    cv::Mat H_final;
     if (needsRotation) {
-        // Transform to portrait (height x width), will be rotated to landscape (width x height)
-        dstCorners = {
-            cv::Point2f(0, 0),
-            cv::Point2f(displaySize.height, 0),
-            cv::Point2f(displaySize.height, displaySize.width),
-            cv::Point2f(0, displaySize.width)
+        // Destination for landscape warping (to be rotated to portrait)
+        float out_w = displaySize.width;
+        float out_h = displaySize.height;
+        std::vector<cv::Point2f> landscape_dst = {
+            {0, 0}, {out_h - 1, 0}, {out_h - 1, out_w - 1}, {0, out_w - 1}
         };
-        LOGI("[transformPointsUsingQuad] needsRotation=true, transforming to portrait %dx%d before rotation",
-             displaySize.height, displaySize.width);
+        cv::Mat H_landscape = cv::getPerspectiveTransform(orderedQuad, landscape_dst);
+
+        // 90° CCW rotation matrix: landscape -> portrait
+        cv::Mat rot = (cv::Mat_<double>(3, 3) << 0, 1, 0, -1, 0, out_h - 1, 0, 0, 1);
+        H_final = rot * H_landscape;
     } else {
-        // Transform directly to displaySize
-        dstCorners = {
-            cv::Point2f(0, 0),
-            cv::Point2f(displaySize.width, 0),
-            cv::Point2f(displaySize.width, displaySize.height),
-            cv::Point2f(0, displaySize.height)
+        // Direct warp to portrait destination
+        std::vector<cv::Point2f> portrait_dst = {
+            {0, 0},
+            {(float)displaySize.width - 1, 0},
+            {(float)displaySize.width - 1, (float)displaySize.height - 1},
+            {0, (float)displaySize.height - 1}
         };
-        LOGI("[transformPointsUsingQuad] needsRotation=false, transforming directly to %dx%d",
-             displaySize.width, displaySize.height);
+        H_final = cv::getPerspectiveTransform(orderedQuad, portrait_dst);
     }
 
-    result.transformedPoints.reserve(rotatedPoints.size());
-    for (size_t i = 0; i < rotatedPoints.size(); i++) {
-        const auto& point = rotatedPoints[i];
-        cv::Point2f transformed = perspectiveTransform(point, orderedQuad, dstCorners);
-
-        // If rotation needed, apply 90° CCW rotation after transformation
-        // We transformed to (height x width), now rotate to (width x height)
-        // Rotation formula: (x, y) → (y, height - x)
-        if (needsRotation) {
-            float rotatedX = transformed.y;
-            float rotatedY = displaySize.height - transformed.x;
-            result.transformedPoints.push_back(cv::Point2f(rotatedX, rotatedY));
-            LOGI("[transformPointsUsingQuad] Ball %zu: (%.1f,%.1f) → after persp: (%.1f,%.1f) → after rotation: (%.1f,%.1f)",
-                 i, point.x, point.y, transformed.x, transformed.y, rotatedX, rotatedY);
-        } else {
-            result.transformedPoints.push_back(transformed);
-            LOGI("[transformPointsUsingQuad] Ball %zu: (%.1f,%.1f) → (%.1f,%.1f)",
-                 i, point.x, point.y, transformed.x, transformed.y);
-        }
+    // Apply the final transformation to all points
+    if (!rotatedPoints.empty()) {
+        cv::perspectiveTransform(rotatedPoints, result.transformedPoints, H_final);
     }
 
     return result;
 }
 
-cv::Point2f perspectiveTransform(
-    const cv::Point2f& point,
-    const std::vector<cv::Point2f>& srcQuad,
-    const std::vector<cv::Point2f>& dstRect
-) {
-    if (srcQuad.size() != 4 || dstRect.size() != 4) {
-        return point;
-    }
-    
-    const cv::Point2f& p0 = srcQuad[0]; // top-left
-    const cv::Point2f& p1 = srcQuad[1]; // top-right
-    const cv::Point2f& p2 = srcQuad[2]; // bottom-right
-    const cv::Point2f& p3 = srcQuad[3]; // bottom-left
-    
-    const cv::Point2f& q0 = dstRect[0]; // top-left
-    const cv::Point2f& q1 = dstRect[1]; // top-right
-    const cv::Point2f& q2 = dstRect[2]; // bottom-right
-    const cv::Point2f& q3 = dstRect[3]; // bottom-left
-    
-    cv::Point2f uv = findUVInQuad(point, p0, p1, p2, p3);
-    float u = uv.x;
-    float v = uv.y;
-    
-    cv::Point2f top = q0 + u * (q1 - q0);    // lerp(q0, q1, u)
-    cv::Point2f bottom = q3 + u * (q2 - q3); // lerp(q3, q2, u)
-    return top + v * (bottom - top);          // lerp(top, bottom, v)
-}
-
-cv::Point2f findUVInQuad(
-    const cv::Point2f& P,
-    const cv::Point2f& p0, const cv::Point2f& p1,
-    const cv::Point2f& p2, const cv::Point2f& p3
-) {
-    
-    float u = 0.5f, v = 0.5f; // Initial guess
-    
-    for (int i = 0; i < 10; ++i) { // Max MAX_NEWTON_ITERATIONS iterations
-        cv::Point2f currentP(
-            (1-u)*(1-v)*p0.x + u*(1-v)*p1.x + u*v*p2.x + (1-u)*v*p3.x,
-            (1-u)*(1-v)*p0.y + u*(1-v)*p1.y + u*v*p2.y + (1-u)*v*p3.y
-        );
-        
-        float dx = P.x - currentP.x;
-        float dy = P.y - currentP.y;
-        
-        if (std::abs(dx) < 0.1f && std::abs(dy) < 0.1f) break;
-        
-        float dPdu_x = -(1-v)*p0.x + (1-v)*p1.x + v*p2.x - v*p3.x;
-        float dPdu_y = -(1-v)*p0.y + (1-v)*p1.y + v*p2.y - v*p3.y;
-        float dPdv_x = -(1-u)*p0.x - u*p1.x + u*p2.x + (1-u)*p3.x;
-        float dPdv_y = -(1-u)*p0.y - u*p1.y + u*p2.y + (1-u)*p3.y;
-        
-        float det = dPdu_x * dPdv_y - dPdu_y * dPdv_x;
-        if (std::abs(det) < 1e-10f) break; // Avoid division by zero
-        
-        float du = (dPdv_y * dx - dPdv_x * dy) / det;
-        float dv = (-dPdu_y * dx + dPdu_x * dy) / det;
-        
-        u += du;
-        v += dv;
-        
-        u = std::clamp(u, 0.0f, 1.0f);
-        v = std::clamp(v, 0.0f, 1.0f);
-    }
-    
-    return cv::Point2f(u, v);
-}

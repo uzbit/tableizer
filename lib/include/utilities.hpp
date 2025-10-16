@@ -81,11 +81,7 @@ TransformationResult transformPointsUsingQuad(const std::vector<cv::Point2f>& po
                                               cv::Size imageSize, cv::Size displaySize,
                                               int inputRotationDegrees);
 
-cv::Point2f perspectiveTransform(const cv::Point2f& point, const std::vector<cv::Point2f>& srcQuad,
-                                 const std::vector<cv::Point2f>& dstRect);
 
-cv::Point2f findUVInQuad(const cv::Point2f& point, const cv::Point2f& p0, const cv::Point2f& p1,
-                         const cv::Point2f& p2, const cv::Point2f& p3);
 
 static const std::string base64_chars =
     "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
