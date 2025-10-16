@@ -190,12 +190,16 @@ SIM_LIB_PATH="$(pwd)/Release-iphonesimulator/libtableizer_lib.dylib"
 if [ -f "$SIM_LIB_PATH" ]; then
     echo "Copying iOS simulator library to Flutter app..."
     cp "$SIM_LIB_PATH" "$FLUTTER_IOS_DIR/libtableizer_lib_sim.dylib"
-    # Also copy as default name for backward compatibility
-    cp "$SIM_LIB_PATH" "$FLUTTER_IOS_DIR/libtableizer_lib.dylib"
     echo "Simulator library copied to: $FLUTTER_IOS_DIR/libtableizer_lib_sim.dylib"
-    echo "                        and: $FLUTTER_IOS_DIR/libtableizer_lib.dylib (default)"
 else
     echo "Warning: Simulator library not found at $SIM_LIB_PATH"
+fi
+
+# Copy device library as default
+if [ -f "$DEVICE_LIB_PATH" ]; then
+    echo "Copying device library as default..."
+    cp "$DEVICE_LIB_PATH" "$FLUTTER_IOS_DIR/libtableizer_lib.dylib"
+    echo "Default library set to: $FLUTTER_IOS_DIR/libtableizer_lib.dylib (device version)"
 fi
 
 echo ""
@@ -208,11 +212,11 @@ echo ""
 echo "Libraries copied to Flutter app:"
 echo "  Device:    $FLUTTER_IOS_DIR/libtableizer_lib_device.dylib"
 echo "  Simulator: $FLUTTER_IOS_DIR/libtableizer_lib_sim.dylib"
-echo "  Default:   $FLUTTER_IOS_DIR/libtableizer_lib.dylib (simulator for testing)"
+echo "  Default:   $FLUTTER_IOS_DIR/libtableizer_lib.dylib (device version)"
 echo ""
 echo "Your iOS libraries are ready to use!"
 echo ""
 echo "Next steps:"
-echo "  • For simulator: flutter run (uses libtableizer_lib.dylib)"
-echo "  • For device: flutter run -d <ios-device-id> (configure to use libtableizer_lib_device.dylib)"
+echo "  • For device: flutter run -d <ios-device-id> (uses libtableizer_lib.dylib)"
+echo "  • For simulator: configure to use libtableizer_lib_sim.dylib"
 echo "  • Or: flutter build ios --release"

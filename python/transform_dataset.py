@@ -19,7 +19,7 @@ from tqdm import tqdm
 # Add utilities to path
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from utilities import (
-    extractTableWithTransformation,
+    extract_table_with_transformation,
     LabelRemapper,
     load_yolo_labels_simple,
 )
@@ -173,7 +173,7 @@ def process_single_image(
             bbox_corners.append(corners)
 
         # Extract table region and get transformation matrix
-        extracted_table, H_transform = extractTableWithTransformation(image, quad)
+        extracted_table, H_transform = extract_table_with_transformation(image, quad)
 
         # Transform bounding boxes
         if bbox_corners:
@@ -301,10 +301,10 @@ def batch_process_dataset(input_dir, output_dir, visualize_samples=False):
 
     print("🔄 Step 1: Remapping labels using LabelRemapper...")
     remapper = LabelRemapper(
-        srcImgDir=images_dir,
-        srcLblDir=labels_dir,
-        dstRoot=temp_dir,
-        oldToNewMap=oldToNewMap,
+        src_img_dir=images_dir,
+        src_lbl_dir=labels_dir,
+        dst_root=temp_dir,
+        old_to_new_map=oldToNewMap,
     )
     kept, dropped = remapper.run()
 

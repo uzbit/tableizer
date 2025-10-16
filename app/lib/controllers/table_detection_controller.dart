@@ -17,16 +17,17 @@ class TableDetectionController extends ChangeNotifier {
   double _fps = 0.0;
   int _frameCounter = 0;
   DateTime _lastFrameTime = DateTime.now();
-  bool _isEnabled = true;  // Control whether table detection is active
-  
+  TableDetectionResult? _tableDetectionResult;  // Store latest table detection result
+
   // Alpha filter settings for quad point smoothing
-  static const double _quadAlpha = 0.2;  // _quadAlpha% new, 100-_quadAlpha% previous (smooth)
+  static const double _quadAlpha = 1.0;  // _quadAlpha% new, 100-_quadAlpha% previous (smooth)
 
   // Getters
   List<Offset> get quadPoints => _filteredQuadPoints.isNotEmpty ? _filteredQuadPoints : _quadPoints;
   ui.Size? get imageSize => _imageSize;
   double get fps => _fps;
-  bool get isEnabled => _isEnabled;
+  TableDetectionResult? get tableDetectionResult => _tableDetectionResult;
+  TableDetectionService get tableDetectionService => _tableDetectionService;
 
   Future<void> initialize() async {
     await _tableDetectionService.initialize();
@@ -48,29 +49,27 @@ class TableDetectionController extends ChangeNotifier {
       _quadPoints = result.points;
       _imageSize = result.imageSize;
       _fps = newFps;
-      
+      _tableDetectionResult = result;  // Store the complete result
+
       // Apply alpha filter to quad points for smooth display
       _applyQuadPointFiltering(result.points);
-      
+
       notifyListeners();
     });
   }
 
   Future<void> processImage(AnalysisImage image) async {
-    // Skip processing if table detection is disabled
-    if (!_isEnabled) return;
-    
     await _tableDetectionService.processImage(image);
   }
-  
-  // Enable/disable table detection
-  void setEnabled(bool enabled) {
-    if (_isEnabled != enabled) {
-      _isEnabled = enabled;
-      notifyListeners();
-    }
+
+  void pause() {
+    _tableDetectionService.pause();
   }
-  
+
+  void resume() {
+    _tableDetectionService.resume();
+  }
+
   // Apply alpha filter to smooth quad point jitter
   void _applyQuadPointFiltering(List<Offset> newPoints) {
     // Initialize filtered points if empty or size mismatch

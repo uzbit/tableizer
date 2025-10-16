@@ -15,123 +15,119 @@
 using namespace cv;
 using namespace std;
 
-// --- PIMPL Implementation ---
 struct BallDetector::Impl {
     Ort::Env env;
     Ort::Session session;
     Ort::AllocatorWithDefaultOptions allocator;
 
-    vector<string> input_node_names_str;
-    vector<const char*> input_node_names;
-    vector<string> output_node_names_str;
-    vector<const char*> output_node_names;
+    vector<string> inputNodeNamesStr;
+    vector<const char*> inputNodeNames;
+    vector<string> outputNodeNamesStr;
+    vector<const char*> outputNodeNames;
 
     Impl(const string& modelPath)
         : env(ORT_LOGGING_LEVEL_WARNING, "ball_detector"),
           session(env, modelPath.c_str(), Ort::SessionOptions{nullptr}) {
         LOGI("ONNX session created successfully for model: %s", modelPath.c_str());
 
-        size_t num_input_nodes = session.GetInputCount();
-        input_node_names_str.reserve(num_input_nodes);
-        for (size_t i = 0; i < num_input_nodes; i++) {
+        size_t numInputNodes = session.GetInputCount();
+        inputNodeNamesStr.reserve(numInputNodes);
+        for (size_t i = 0; i < numInputNodes; i++) {
             auto name = session.GetInputNameAllocated(i, allocator);
-            input_node_names_str.push_back(name.get());
+            inputNodeNamesStr.push_back(name.get());
         }
-        for (const auto& s : input_node_names_str) input_node_names.push_back(s.c_str());
+        for (const auto& s : inputNodeNamesStr) inputNodeNames.push_back(s.c_str());
 
-        size_t num_output_nodes = session.GetOutputCount();
-        output_node_names_str.reserve(num_output_nodes);
-        for (size_t i = 0; i < num_output_nodes; i++) {
+        size_t numOutputNodes = session.GetOutputCount();
+        outputNodeNamesStr.reserve(numOutputNodes);
+        for (size_t i = 0; i < numOutputNodes; i++) {
             auto name = session.GetOutputNameAllocated(i, allocator);
-            output_node_names_str.push_back(name.get());
+            outputNodeNamesStr.push_back(name.get());
         }
-        for (const auto& s : output_node_names_str) output_node_names.push_back(s.c_str());
+        for (const auto& s : outputNodeNamesStr) outputNodeNames.push_back(s.c_str());
     }
 };
 
-// --- Class Implementation ---
 BallDetector::BallDetector(const string& modelPath) : pimpl(make_unique<Impl>(modelPath)) {}
 BallDetector::~BallDetector() = default;
 
 vector<Detection> BallDetector::detect(const Mat& image, float confThreshold, float iouThreshold) {
     constexpr int kTarget = 1280;  // MUST MATCH BALL DETECTION "imgsz" in model_table.py
-    constexpr int num_classes = 4;
+    constexpr int numClasses = 4;
 
-    int img_w = image.cols, img_h = image.rows;
-    float r = min(float(kTarget) / img_w, float(kTarget) / img_h);
-    int new_w = int(round(img_w * r));
-    int new_h = int(round(img_h * r));
-    int pad_w = kTarget - new_w, pad_h = kTarget - new_h;
-    int pad_left = pad_w / 2, pad_top = pad_h / 2;
+    int imgW = image.cols, imgH = image.rows;
+    float scale = min(float(kTarget) / imgW, float(kTarget) / imgH);
+    int newW = int(round(imgW * scale));
+    int newH = int(round(imgH * scale));
+    int padW = kTarget - newW, padH = kTarget - newH;
+    int padLeft = padW / 2, padTop = padH / 2;
 
-    // Letterbox manually
     Mat resized;
-    resize(image, resized, {new_w, new_h}, 0, 0, INTER_LINEAR);
+    resize(image, resized, {newW, newH}, 0, 0, INTER_LINEAR);
     Mat input(kTarget, kTarget, CV_8UC3, Scalar(114, 114, 114));
-    resized.copyTo(input(Rect(pad_left, pad_top, new_w, new_h)));
+    resized.copyTo(input(Rect(padLeft, padTop, newW, newH)));
 
-    // Convert to model input format
     cvtColor(input, input, COLOR_BGR2RGB);
     input.convertTo(input, CV_32F, 1.f / 255.f);
 
     Mat blob;
     dnn::blobFromImage(input, blob);  // NHWC → NCHW, float32
 
-    vector<int64_t> input_shape = {1, 3, kTarget, kTarget};
-    auto mem_info = Ort::MemoryInfo::CreateCpu(OrtArenaAllocator, OrtMemTypeDefault);
-    Ort::Value input_tensor = Ort::Value::CreateTensor<float>(
-        mem_info, blob.ptr<float>(), blob.total(), input_shape.data(), input_shape.size());
+    vector<int64_t> inputShape = {1, 3, kTarget, kTarget};
+    auto memInfo = Ort::MemoryInfo::CreateCpu(OrtArenaAllocator, OrtMemTypeDefault);
+    Ort::Value inputTensor = Ort::Value::CreateTensor<float>(
+        memInfo, blob.ptr<float>(), blob.total(), inputShape.data(), inputShape.size());
 
-    auto output_tensors =
-        pimpl->session.Run(Ort::RunOptions{nullptr}, pimpl->input_node_names.data(), &input_tensor,
-                           1, pimpl->output_node_names.data(), 1);
+    auto outputTensors =
+        pimpl->session.Run(Ort::RunOptions{nullptr}, pimpl->inputNodeNames.data(), &inputTensor,
+                           1, pimpl->outputNodeNames.data(), 1);
 
-    auto shape = output_tensors[0].GetTensorTypeAndShapeInfo().GetShape();
-    const float* raw = output_tensors[0].GetTensorData<float>();
+    auto shape = outputTensors[0].GetTensorTypeAndShapeInfo().GetShape();
+    const float* raw = outputTensors[0].GetTensorData<float>();
 
-    int num_attrs = shape[1];  // 9 (cx,cy,w,h,obj,cls0,cls1,cls2,cls3)
-    int num_preds = shape[2];  // 13125
+    int numAttrs = shape[1];
+    int numPreds = shape[2];
 
     auto sigmoid = [](float x) { return 1.f / (1.f + exp(-x)); };
 
-    vector<Detection> pre_nms;
-    for (int i = 0; i < num_preds; ++i) {
-        float cx = raw[0 * num_preds + i];
-        float cy = raw[1 * num_preds + i];
-        float w = raw[2 * num_preds + i];
-        float h = raw[3 * num_preds + i];
+    vector<Detection> preNms;
+    for (int i = 0; i < numPreds; ++i) {
+        float cx = raw[0 * numPreds + i];
+        float cy = raw[1 * numPreds + i];
+        float width = raw[2 * numPreds + i];
+        float height = raw[3 * numPreds + i];
 
-        float best_cls = 0.f;
-        int class_id = -1;
-        for (int j = 0; j < num_classes; ++j) {
-            float cls_score = sigmoid(raw[(4 + j) * num_preds + i]);
-            if (cls_score > best_cls) {
-                best_cls = cls_score;
-                class_id = j;
+        float bestCls = 0.f;
+        int classId = -1;
+        for (int j = 0; j < numClasses; ++j) {
+            float clsScore = sigmoid(raw[(4 + j) * numPreds + i]);
+            if (clsScore > bestCls) {
+                bestCls = clsScore;
+                classId = j;
             }
         }
 
-        float conf = best_cls;
+        float conf = bestCls;
         if (conf < confThreshold) continue;
 
-        float x1 = (cx - w / 2 - pad_left) / r;
-        float y1 = (cy - h / 2 - pad_top) / r;
-        float x2 = (cx + w / 2 - pad_left) / r;
-        float y2 = (cy + h / 2 - pad_top) / r;
+        float x1 = (cx - width / 2 - padLeft) / scale;
+        float y1 = (cy - height / 2 - padTop) / scale;
+        float x2 = (cx + width / 2 - padLeft) / scale;
+        float y2 = (cy + height / 2 - padTop) / scale;
 
-        x1 = clamp(x1, 0.f, float(img_w - 1));
-        y1 = clamp(y1, 0.f, float(img_h - 1));
-        x2 = clamp(x2, 0.f, float(img_w - 1));
-        y2 = clamp(y2, 0.f, float(img_h - 1));
+        x1 = clamp(x1, 0.f, float(imgW - 1));
+        y1 = clamp(y1, 0.f, float(imgH - 1));
+        x2 = clamp(x2, 0.f, float(imgW - 1));
+        y2 = clamp(y2, 0.f, float(imgH - 1));
 
         Rect box = Rect(Point(x1, y1), Point(x2, y2));
         Point2f center = Point2f(box.x + box.width / 2, box.y + box.height / 2);
-        pre_nms.push_back({box, center, conf, class_id});
+        preNms.push_back({box, center, classId, conf});
     }
 
     vector<Rect> boxes;
     vector<float> scores;
-    for (const auto& d : pre_nms) {
+    for (const auto& d : preNms) {
         boxes.push_back(d.box);
         scores.push_back(d.confidence);
     }
@@ -140,6 +136,6 @@ vector<Detection> BallDetector::detect(const Mat& image, float confThreshold, fl
     dnn::NMSBoxes(boxes, scores, confThreshold, iouThreshold, keep);
 
     vector<Detection> final;
-    for (int idx : keep) final.push_back(pre_nms[idx]);
+    for (int idx : keep) final.push_back(preNms[idx]);
     return final;
 }

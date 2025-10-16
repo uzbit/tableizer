@@ -14,6 +14,7 @@ set(LIB_SOURCES
     src/ball_detector.cpp
     src/utilities.cpp
     src/base64_utils.cpp
+    src/quad_analysis.cpp
 )
 set(APP_SOURCES
     ${LIB_SOURCES}

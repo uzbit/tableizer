@@ -6,9 +6,9 @@
 using namespace std;
 using namespace cv;
 
-class CellularTableDetector {
+class TableDetector {
    public:
-    CellularTableDetector(int resizeHeight, int cellSize, double deltaEThreshold);
+    TableDetector(int maxDimension, int cellSize, double deltaEThreshold);
 
     void detect(const Mat &imgBgra, Mat &mask, Mat &debugDraw, int rotationDegrees);
     vector<Point2f> getQuadFromMask(const Mat &inside);
@@ -22,12 +22,10 @@ class CellularTableDetector {
     Vec3f calculateMultiReferenceColor(const Mat &labImg, int rows, int cols);
     Vec3f calculateMedianColor(const vector<Vec3f> &colors);
 
-    int resizeHeight;
     int cellSize;
     double deltaEThreshold;
-
-    // Cache for precomputed LAB values
     vector<vector<Vec3f>> labCache;
+    int targetMaxDimension;
 };
 
 #endif  // TABLE_DETECTOR_HPP

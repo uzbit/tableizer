@@ -206,16 +206,17 @@ def main():
     args = ap.parse_args()
 
     CONFIG = {
-        "srcImgDir": "data/pix2pockets/images",
-        "srcLblDir": "data/pix2pockets/labels",
+        "srcImgDir": "data/pix2pockets_remapped/images",
+        "srcLblDir": "data/pix2pockets_remapped/labels",
         "dstRoot": "/tmp/workdir",
-        "oldToNewMap": {4: 3, 3: 2, 1: 1, 0: 0},  # original → remapped
+        "oldToNewMap": {3: 3, 2: 2, 1: 1, 0: 0}, # shotstudio
+        #"oldToNewMap": {4: 3, 3: 2, 1: 1, 0: 0},  # pix2pocket → shotstudio, not needed 
         "classNames": ["black", "cue", "solid", "stripe"],  # id 0→black …
-        "split": [0.8, 0.15, 0.05],
+        "split": [0.8, 0.10, 0.10],
         "trainer": {
             "model": "yolov8n.pt",  # or yolov8s.pt, yolov9c.pt …
             "hyp": "data/hyps/hyp.custom.yaml",  # optional
-            "epochs": 30,
+            "epochs": 20,
             "imgsz": 1280,
             "batch": 4,  # Further reduced batch size for stability
             "device": "mps",

@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:ffi' hide Size;
 import 'dart:isolate';
+import 'dart:typed_data';
 import 'dart:ui';
 
 import 'package:camerawesome/camerawesome_plugin.dart';
@@ -11,10 +12,27 @@ import '../models/table_detection_result.dart';
 import '../native/library_loader.dart';
 
 // --- FFI Function Signatures ---
-typedef DetectTableBgraC = Pointer<Utf8> Function(Pointer<Uint8> imageBytes, Int32 width,
-    Int32 height, Int32 stride, Int32 rotationDegrees, Pointer<Utf8> debugImagePath);
-typedef DetectTableBgraDart = Pointer<Utf8> Function(Pointer<Uint8> imageBytes,
-    int width, int height, int stride, int rotationDegrees, Pointer<Utf8> debugImagePath);
+typedef DetectTableBgraC = Pointer<Utf8> Function(
+    Pointer<Uint8> imageBytes, Int32 width, Int32 height, Int32 stride);
+typedef DetectTableBgraDart = Pointer<Utf8> Function(
+    Pointer<Uint8> imageBytes, int width, int height, int stride);
+
+typedef NormalizeImageBgraC = Pointer<Utf8> Function(
+    Pointer<Uint8> inputBytes,
+    Int32 inputWidth,
+    Int32 inputHeight,
+    Int32 inputStride,
+    Int32 rotationDegrees,
+    Pointer<Uint8> outputBytes,
+    Int32 outputBufferSize);
+typedef NormalizeImageBgraDart = Pointer<Utf8> Function(
+    Pointer<Uint8> inputBytes,
+    int inputWidth,
+    int inputHeight,
+    int inputStride,
+    int rotationDegrees,
+    Pointer<Uint8> outputBytes,
+    int outputBufferSize);
 
 /// The entry point for the table detection isolate.
 void tableDetectionIsolateEntry(List<dynamic> args) async {
@@ -25,103 +43,168 @@ void tableDetectionIsolateEntry(List<dynamic> args) async {
   BackgroundIsolateBinaryMessenger.ensureInitialized(rootToken);
   // ----------------------------------------------------------------
 
-  print('[TABLE_ISOLATE] Table detection isolate started.');
   final receivePort = ReceivePort();
   sendPort.send(receivePort.sendPort);
 
   // --- Isolate-local FFI setup ---
-  // This needs to be loaded in the isolate separately because
-  // it has it's own memory space.
   final dylib = LibraryLoader.library;
-
   final detectTableBgra = dylib
       .lookup<NativeFunction<DetectTableBgraC>>('detect_table_bgra')
       .asFunction<DetectTableBgraDart>();
+  final normalizeImageBgra = dylib
+      .lookup<NativeFunction<NormalizeImageBgraC>>('normalize_image_bgra')
+      .asFunction<NormalizeImageBgraDart>();
   // --- End FFI setup ---
 
-  int frameCount = 0;
-
-  // --- Pre-allocate a native buffer to avoid allocation on every frame ---
-  final Pointer<Uint8> imagePtr = calloc<Uint8>(3840 * 2160 * 4);
+  // --- Pre-allocate native buffers to avoid allocation on every frame ---
+  // Input buffer for raw camera image
+  final Pointer<Uint8> inputPtr = calloc<Uint8>(3840 * 2160 * 4);
+  // Output buffer for normalized image (16:9 canvas)
+  final Pointer<Uint8> outputPtr = calloc<Uint8>(3840 * 2160 * 4);
 
   receivePort.listen((dynamic message) {
     if (message is AnalysisImage) {
       message.when(bgra8888: (image) {
         Pointer<Utf8> resultPtr = nullptr;
-        Pointer<Utf8> pathPtr = nullptr;
 
         try {
           final plane = image.planes[0];
-          final bytes = plane.bytes;
+          final originalBytes = plane.bytes;
+          final originalWidth = image.width;
+          final originalHeight = image.height;
+          final originalStride = plane.bytesPerRow;
 
-          imagePtr.asTypedList(bytes.length).setAll(0, bytes);
+          // Store original dimensions before any transformation
+          final capturedWidth = originalWidth;
+          final capturedHeight = originalHeight;
 
-          // String debugImagePath = '';
-          // if (frameCount % 150 == 0) {
-          //   debugImagePath = '${tempDir.path}/native_debug_$frameCount.png';
-          // }
-          // pathPtr = debugImagePath.toNativeUtf8();
-          pathPtr = nullptr;
+          // Determine rotation degrees from camera orientation
+          int rotationDegrees = 0;
+          if (image.rotation == InputAnalysisImageRotation.rotation90deg) {
+            rotationDegrees = 90;
+          } else if (image.rotation == InputAnalysisImageRotation.rotation270deg) {
+            rotationDegrees = 270;
+          } else if (image.rotation == InputAnalysisImageRotation.rotation180deg) {
+            rotationDegrees = 180;
+          }
 
-          // No rotation - process image as-is
+          // Copy original image bytes to input buffer
+          inputPtr.asTypedList(originalBytes.length).setAll(0, originalBytes);
 
-          resultPtr = detectTableBgra(
-            imagePtr,
-            image.width,
-            image.height,
-            plane.bytesPerRow,
-            0,  // No rotation - process image as-is
-            pathPtr,
+          // Call C++ normalize function
+          final normalizeResult = normalizeImageBgra(
+            inputPtr,
+            originalWidth,
+            originalHeight,
+            originalStride,
+            rotationDegrees,
+            outputPtr,
+            3840 * 2160 * 4, // output buffer size
           );
 
-          frameCount++;
+          if (normalizeResult == nullptr) {
+            sendPort.send(true);
+            return;
+          }
+
+          // Parse normalization result
+          final normalizeJson = normalizeResult.toDartString();
+          final Map<String, dynamic> normalizeData = json.decode(normalizeJson);
+
+          if (normalizeData.containsKey('error')) {
+            print('[TABLE_ISOLATE] Normalization error: ${normalizeData['error']}');
+            sendPort.send(true);
+            return;
+          }
+
+          final int normalizedWidth = normalizeData['width'] ?? 0;
+          final int normalizedHeight = normalizeData['height'] ?? 0;
+          final int normalizedStride = normalizeData['stride'] ?? 0;
+          final int offsetX = normalizeData['offset_x'] ?? 0;
+          final int offsetY = normalizeData['offset_y'] ?? 0;
+
+          // Calculate original image size after rotation but before padding
+          // If rotation is 90 or 270, dimensions are swapped
+          int unpaddedWidth;
+          int unpaddedHeight;
+          if (rotationDegrees == 90 || rotationDegrees == 270) {
+            unpaddedWidth = capturedHeight;
+            unpaddedHeight = capturedWidth;
+          } else {
+            unpaddedWidth = capturedWidth;
+            unpaddedHeight = capturedHeight;
+          }
+
+          // Call table detection with normalized image
+          resultPtr = detectTableBgra(
+            outputPtr,
+            normalizedWidth,
+            normalizedHeight,
+            normalizedStride,
+          );
 
           if (resultPtr != nullptr) {
             final jsonResult = resultPtr.toDartString();
             final Map<String, dynamic> parsed = json.decode(jsonResult);
-            
+
             if (parsed.containsKey('error')) {
-              print('[TABLE_ISOLATE] Error from native: ${parsed['error']}');
+              // Handle error
             } else {
+              // Parse quad points from C++ (in canvas coordinates)
               final List<dynamic> quadPointsJson = parsed['quad_points'] ?? [];
-              var quadPoints = quadPointsJson.map<Offset>((point) {
+              var canvasQuadPoints = quadPointsJson.map<Offset>((point) {
                 return Offset(point[0].toDouble(), point[1].toDouble());
               }).toList();
-              
-              final imageWidth = (parsed['image_width'] ?? image.width).toDouble();
-              final imageHeight = (parsed['image_height'] ?? image.height).toDouble();
-              
-              // Since C++ FFI now processes image without rotation, but camera is rotated 90°,
-              // we need to rotate coordinates for display
-              if (image.rotation == InputAnalysisImageRotation.rotation90deg) {
-                quadPoints = quadPoints.map((point) {
-                  // 90° clockwise rotation: (x,y) -> (height-y, x)
-                  return Offset(imageHeight - point.dy, point.dx);
-                }).toList();
-                
-                // Swap dimensions for rotated display
-                final rotatedImageSize = Size(imageHeight, imageWidth);
-                
-                // Send the complete result object back
-                sendPort.send(TableDetectionResult(
-                  quadPoints,
-                  rotatedImageSize,
-                ));
-              } else {
-                // No rotation needed
-                sendPort.send(TableDetectionResult(
-                  quadPoints,
-                  Size(imageWidth, imageHeight),
-                ));
+
+              final canvasWidth = (parsed['image_width'] ?? normalizedWidth).toDouble();
+              final canvasHeight = (parsed['image_height'] ?? normalizedHeight).toDouble();
+
+              // Parse orientation from C++ quad analysis
+              final String? orientation = parsed['orientation'];
+
+              // Transform quad points from canvas space to original image space
+              final originalQuadPoints = canvasQuadPoints.map((point) {
+                return Offset(point.dx - offsetX, point.dy - offsetY);
+              }).toList();
+
+              // Parse mask if available
+              Uint8List? maskBytes;
+              if (parsed.containsKey('mask') && parsed['mask'] is Map) {
+                final maskData = parsed['mask']['data'];
+                if (maskData is String) {
+                  try {
+                    maskBytes = base64.decode(maskData);
+                  } catch (e) {
+                    // Failed to decode mask
+                  }
+                }
               }
+
+              // Copy normalized buffer for reuse in ball detection
+              final int normalizedBufferSize = normalizedWidth * normalizedHeight * 4;
+              final Uint8List normalizedBytesCopy = Uint8List.fromList(
+                outputPtr.asTypedList(normalizedBufferSize)
+              );
+
+              // Send result with points in original image coordinates
+              sendPort.send(TableDetectionResult(
+                originalQuadPoints,
+                Size(canvasWidth, canvasHeight),
+                maskBytes: maskBytes,
+                canvasOffsetX: offsetX,
+                canvasOffsetY: offsetY,
+                originalImageSize: Size(unpaddedWidth.toDouble(), unpaddedHeight.toDouble()),
+                normalizedBytes: normalizedBytesCopy,
+                normalizedWidth: normalizedWidth,
+                normalizedHeight: normalizedHeight,
+                normalizedStride: normalizedStride,
+                orientation: orientation,
+              ));
             }
           }
         } catch (e) {
-          print('[TABLE_ISOLATE] Error processing image: $e');
+          // Error processing image: $e
         } finally {
-          if (pathPtr != nullptr) {
-            calloc.free(pathPtr);
-          }
           // Signal that we are ready for the next frame
           sendPort.send(true);
         }

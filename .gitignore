@@ -8,6 +8,7 @@ __pycache__
 data/
 *.jpg
 *.jpeg
+*.so
 app/ios/Podfile.lock
 
 # CMake build files

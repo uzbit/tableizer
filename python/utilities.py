@@ -101,23 +101,18 @@ def draw_ball_overlays(img_bgr, ball_centers, ball_classes, radius=12):
 
 
 def draw_shot_studio(ball_centers, ball_classes, warp_img):
-    # --- load balls as BGR ---
     shot_studio_table = cv2.imread(str(Path("../data/shotstudio_table_felt_only.png")))
 
     print("Shotstudio:", shot_studio_table.shape)
     print("warp_img:", warp_img.shape)
 
     top_rail_width = 25
-    # left_rail, top_rail = 106, 106 - top_rail_width
     left_rail, top_rail = 0, 0
     shot_studio_centers = ball_centers + np.array([left_rail, top_rail])
 
-    # Compute physical → pixel scale using table dimensions
-    # 7-foot: 78", 8-foot: 88", 9-foot: 100"
     ball_dia_px = calculate_ball_pixel_size(warp_img, table_size=78)
     ball_dia_px = max(ball_dia_px, 8)
 
-    # Resize all ball images
     ball_resized = [
         cv2.resize(b, (ball_dia_px, ball_dia_px), interpolation=cv2.INTER_AREA)
         for b in ball_image_bgrs
@@ -129,7 +124,6 @@ def draw_shot_studio(ball_centers, ball_classes, warp_img):
         x = int(round(center[0] - bw / 2))
         y = int(round(center[1] - bh / 2))
 
-        # Bounds check
         if (
             x < 0
             or y < 0
@@ -140,7 +134,6 @@ def draw_shot_studio(ball_centers, ball_classes, warp_img):
 
         roi = shot_studio_table[y : y + bh, x : x + bw]
 
-        # Create mask for non-white pixels (treating white as background)
         gray = cv2.cvtColor(ball_img, cv2.COLOR_BGR2GRAY)
         _, mask = cv2.threshold(gray, 250, 255, cv2.THRESH_BINARY_INV)
         mask_inv = cv2.bitwise_not(mask)

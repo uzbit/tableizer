@@ -13,6 +13,7 @@ void main() async {
     MaterialApp(
       theme: ThemeData.dark(),
       home: const CameraScreen(),
+      navigatorObservers: [routeObserver],
     ),
   );
 }

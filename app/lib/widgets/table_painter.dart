@@ -3,18 +3,25 @@ import 'package:flutter/material.dart';
 class TablePainter extends CustomPainter {
   TablePainter({
     required this.quadPoints,
+    this.orientation,
   });
 
   final List<Offset> quadPoints;
+  final String? orientation;
 
   @override
   void paint(Canvas canvas, Size size) {
     if (quadPoints.isEmpty) return;
 
+    // Green for SHORT_SIDE orientation, red for all others
+    final Color quadColor = orientation == 'SHORT_SIDE'
+        ? Colors.green
+        : Colors.red;
+
     final paint = Paint()
       ..style = PaintingStyle.stroke
       ..strokeWidth = 4.0
-      ..color = Colors.red;
+      ..color = quadColor;
 
     final path = Path();
     if (quadPoints.isNotEmpty) {
@@ -30,5 +37,5 @@ class TablePainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant TablePainter old) =>
-      old.quadPoints != quadPoints;
+      old.quadPoints != quadPoints || old.orientation != orientation;
 }

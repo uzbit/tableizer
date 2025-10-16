@@ -8,8 +8,8 @@
 struct Detection {
     cv::Rect box;
     cv::Point2f center;
-    float confidence;
     int classId;
+    float confidence;
 };
 
 class BallDetector {

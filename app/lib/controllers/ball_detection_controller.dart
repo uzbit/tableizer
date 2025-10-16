@@ -1,67 +1,87 @@
 import 'dart:typed_data';
-import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
-import 'package:image/image.dart' as img;
 import '../models/ball_detection_result.dart';
 import '../services/ball_detection_service.dart';
-import '../services/table_detection_service.dart';
 import '../models/table_detection_result.dart';
 
 class BallDetectionController extends ChangeNotifier {
   final BallDetectionService _ballDetectionService = BallDetectionService();
-  final TableDetectionService _tableDetectionService = TableDetectionService();
   static const double _confidenceThreshold = 0.6; // Match native CONF_THRESH from tableizer.cpp
 
   // Ball detection state
   List<BallDetectionResult> _ballDetections = [];
   bool _isProcessingBalls = false;
-  ui.Size? _capturedImageSize;
-  
-  // Table detection state
-  TableDetectionResult? _tableDetectionResult;
 
   // Getters
   List<BallDetectionResult> get ballDetections => _ballDetections;
   bool get isProcessingBalls => _isProcessingBalls;
-  ui.Size? get capturedImageSize => _capturedImageSize;
-  TableDetectionResult? get tableDetectionResult => _tableDetectionResult;
 
   Future<void> initialize() async {
     await _ballDetectionService.initialize();
-    await _tableDetectionService.initialize();
   }
 
-  Future<void> processBallDetection(Uint8List imageBytes) async {
+  Future<void> processBallDetection(
+    Uint8List bgraBytes,
+    int width,
+    int height,
+    TableDetectionResult? tableDetectionResult,
+    int rotationDegrees,
+  ) async {
     if (_isProcessingBalls) return;
-    
+
     _isProcessingBalls = true;
     _ballDetections.clear();
     notifyListeners();
 
     try {
-      // Step 1: Decode JPEG bytes to Image
-      final img.Image? decodedImage = img.decodeImage(imageBytes);
-      if (decodedImage == null) {
-        throw Exception('Failed to decode captured image');
+      print('====================================');
+      print('[BALL_DETECTION] BGRA frame: ${width}x$height (${bgraBytes.length} bytes)');
+      print('[BALL_DETECTION] First 16 bytes: ${bgraBytes.sublist(0, 16)}');
+      print('[BALL_DETECTION] Table detected: ${tableDetectionResult != null}');
+      print('[BALL_DETECTION] Quad points available: ${tableDetectionResult?.points != null}');
+
+      // Transform quad points to canvas coordinates if available
+      List<Offset>? canvasQuadPoints;
+      if (tableDetectionResult?.points != null) {
+        // Table result contains points in original image coordinates
+        // We need to transform them to canvas coordinates for ball detection
+        canvasQuadPoints = tableDetectionResult!.points.map((point) {
+          return Offset(
+            point.dx + tableDetectionResult.canvasOffsetX,
+            point.dy + tableDetectionResult.canvasOffsetY,
+          );
+        }).toList();
+        print('[BALL_DETECTION] Original quad points: ${tableDetectionResult.points}');
+        print('[BALL_DETECTION] Canvas quad points: $canvasQuadPoints');
+        print('[BALL_DETECTION] Canvas offset: (${tableDetectionResult.canvasOffsetX}, ${tableDetectionResult.canvasOffsetY})');
       }
+      print('====================================');
 
-      // Step 2: Convert to BGRA format (for C++ BGRA functions)
-      final img.Image bgraImage = decodedImage.convert(numChannels: 4);
-      final Uint8List bgraBytes = bgraImage.getBytes(order: img.ChannelOrder.bgra);
-
-      // Step 3: Store image dimensions for coordinate transformation
-      _capturedImageSize = ui.Size(
-        bgraImage.width.toDouble(),
-        bgraImage.height.toDouble(),
-      );
-
-      // Step 4: Run ball detection (following test pattern)
-      final detections = await _ballDetectionService.detectBallsFromBytes(
-        bgraBytes,
-        bgraImage.width,
-        bgraImage.height,
-      );
+      // Run ball detection - use pre-normalized buffer if available
+      List<BallDetectionResult> detections;
+      if (tableDetectionResult?.normalizedBytes != null &&
+          tableDetectionResult!.normalizedWidth > 0 &&
+          tableDetectionResult.normalizedHeight > 0) {
+        print('[BALL_DETECTION] ✓ Using pre-normalized buffer from table detection (no re-normalization)');
+        print('[BALL_DETECTION] Normalized size: ${tableDetectionResult.normalizedWidth}x${tableDetectionResult.normalizedHeight}');
+        detections = await _ballDetectionService.detectBallsFromNormalizedBytes(
+          tableDetectionResult.normalizedBytes!,
+          tableDetectionResult.normalizedWidth,
+          tableDetectionResult.normalizedHeight,
+          tableDetectionResult.normalizedStride,
+          quadPoints: canvasQuadPoints,
+        );
+      } else {
+        print('[BALL_DETECTION] ⚠ No pre-normalized buffer available, normalizing image...');
+        detections = await _ballDetectionService.detectBallsFromBytes(
+          bgraBytes,
+          width,
+          height,
+          quadPoints: canvasQuadPoints,
+          rotationDegrees: rotationDegrees,
+        );
+      }
 
       // Filter detections by confidence (extra safety, native code should already filter)
       final filteredDetections = detections
@@ -83,59 +103,24 @@ class BallDetectionController extends ChangeNotifier {
     }
   }
 
-  Future<void> processTableDetection(Uint8List imageBytes) async {
-    try {
-      // Step 1: Decode JPEG bytes to Image
-      final img.Image? decodedImage = img.decodeImage(imageBytes);
-      if (decodedImage == null) {
-        throw Exception('Failed to decode captured image');
-      }
-
-      // Step 2: Convert to BGRA format (for C++ BGRA functions)
-      final img.Image bgraImage = decodedImage.convert(numChannels: 4);
-      final Uint8List bgraBytes = bgraImage.getBytes(order: img.ChannelOrder.bgra);
-
-      // Step 3: Run table detection on the image
-      final tableResult = await _tableDetectionService.detectTableFromBytes(
-        bgraBytes,
-        bgraImage.width,
-        bgraImage.height,
-      );
-
-      _tableDetectionResult = tableResult;
-      notifyListeners();
-
-      if (tableResult != null) {
-        print('Table detection completed: ${tableResult.points.length} quad points found');
-      } else {
-        print('Table detection failed');
-      }
-    } catch (e) {
-      print('Table detection failed: $e');
-      notifyListeners();
-    }
-  }
-
   void clearDetections() {
     _ballDetections.clear();
-    _capturedImageSize = null;
-    _tableDetectionResult = null;
     notifyListeners();
   }
 
   String buildCaptureStatusText(Uint8List? capturedImageBytes) {
     if (capturedImageBytes == null) {
-      return 'Image Captured!\n(Ready for ball detection)';
+      return 'Frame Captured!\n(Ready for ball detection)';
     }
-    
+
     final sizeKB = (capturedImageBytes.length / 1024).toStringAsFixed(1);
-    
+
     if (_isProcessingBalls) {
-      return 'Processing Image...\n(${sizeKB}KB - Detecting balls)';
+      return 'Processing Frame...\n(${sizeKB}KB - Detecting balls)';
     } else if (_ballDetections.isNotEmpty) {
       return 'Detection Complete!\n(${_ballDetections.length} balls found - ${sizeKB}KB)';
     } else {
-      return 'Image Captured!\n(${sizeKB}KB - Ready for analysis)';
+      return 'Frame Captured!\n(${sizeKB}KB - Ready for analysis)';
     }
   }
 
@@ -199,7 +184,6 @@ class BallDetectionController extends ChangeNotifier {
   @override
   void dispose() {
     _ballDetectionService.dispose();
-    _tableDetectionService.dispose();
     super.dispose();
   }
 }

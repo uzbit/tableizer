@@ -30,11 +30,23 @@ int main(int argc, char* argv[]) {
                 cerr << "Error: Could not open image at " << entry.path() << endl;
                 return -1;
             }
-            cout << "--- Step 1: " << entry.path() << "Loading ---" << endl;
+            cout << "--- Step 1: " << entry.path() << " Loading ---" << endl;
             cout << "Original image dimensions: " << image.cols << "x" << image.rows << endl;
+
+            // Resize to match mobile app resolution (max width 1280)
+            constexpr int kMaxWidth = 1280;
+            Mat resizedImage;
+            if (image.cols > kMaxWidth) {
+                double scale = static_cast<double>(kMaxWidth) / image.cols;
+                int newHeight = static_cast<int>(image.rows * scale);
+                resize(image, resizedImage, Size(kMaxWidth, newHeight), 0, 0, INTER_LINEAR);
+                cout << "Resized to match mobile app: " << resizedImage.cols << "x" << resizedImage.rows << endl;
+            } else {
+                resizedImage = image;
+            }
             cout << endl;
 
-            runTableizerForImage(image, ballDetector);
+            runTableizerForImage(resizedImage, ballDetector);
         }
     }
 

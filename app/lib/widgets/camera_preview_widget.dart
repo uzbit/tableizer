@@ -3,18 +3,48 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import '../widgets/table_painter.dart';
 import '../widgets/bullseye_painter.dart';
+import '../models/table_detection_result.dart';
 
 class CameraPreviewWidget extends StatelessWidget {
-  final List<Offset> quadPoints;
-  final ui.Size? imageSize;
+  final TableDetectionResult? tableDetectionResult;
   final double fps;
 
   const CameraPreviewWidget({
     super.key,
-    required this.quadPoints,
-    required this.imageSize,
+    required this.tableDetectionResult,
     required this.fps,
   });
+
+  List<Offset> _scalePoints({
+    required List<Offset> points,
+    required Size sourceSize,
+    required Size targetSize,
+    BoxFit fit = BoxFit.contain,
+  }) {
+    final double scaleX = targetSize.width / sourceSize.width;
+    final double scaleY = targetSize.height / sourceSize.height;
+
+    double scale;
+    double offsetX = 0;
+    double offsetY = 0;
+
+    if (fit == BoxFit.contain) {
+      scale = scaleX < scaleY ? scaleX : scaleY;
+      final scaledWidth = sourceSize.width * scale;
+      final scaledHeight = sourceSize.height * scale;
+      offsetX = (targetSize.width - scaledWidth) / 2;
+      offsetY = (targetSize.height - scaledHeight) / 2;
+    } else {
+      scale = 1.0;
+    }
+
+    return points.map((point) {
+      return Offset(
+        point.dx * scale + offsetX,
+        point.dy * scale + offsetY,
+      );
+    }).toList();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -22,40 +52,26 @@ class CameraPreviewWidget extends StatelessWidget {
       fit: StackFit.expand,
       children: [
         // Table detection overlay
-        if (imageSize != null)
+        if (tableDetectionResult != null)
           LayoutBuilder(builder: (context, constraints) {
             final previewSize = constraints.biggest;
-            final imageSize = this.imageSize!;
+            final result = tableDetectionResult!;
 
-            final imageAspectRatio = imageSize.width / imageSize.height;
-            final previewAspectRatio = previewSize.width / previewSize.height;
-
-            double scale;
-            // This logic mimics BoxFit.contain.
-            if (previewAspectRatio > imageAspectRatio) {
-              // Preview is wider than the image -> letterbox
-              scale = previewSize.height / imageSize.height;
-            } else {
-              // Preview is taller than the image -> pillarbox
-              scale = previewSize.width / imageSize.width;
-            }
-
-            final scaledWidth = imageSize.width * scale;
-            final scaledHeight = imageSize.height * scale;
-
-            // Center the scaled image within the preview.
-            final dx = (previewSize.width - scaledWidth) / 2.0;
-            final dy = (previewSize.height - scaledHeight) / 2.0;
-
-            // Transform points from image-space to screen-space.
-            final scaledPoints = quadPoints.map((p) {
-              return Offset(p.dx * scale + dx, p.dy * scale + dy);
-            }).toList();
-            
+            // Points are in rotated image space (before padding)
+            // Scale directly from original image size to display size
+            final scaledPoints = _scalePoints(
+              points: result.points,
+              sourceSize: result.originalImageSize ?? result.imageSize,
+              targetSize: previewSize,
+              fit: BoxFit.contain,
+            );
 
             return CustomPaint(
               size: previewSize,
-              painter: TablePainter(quadPoints: scaledPoints),
+              painter: TablePainter(
+                quadPoints: scaledPoints,
+                orientation: result.orientation,
+              ),
             );
           }),
 
