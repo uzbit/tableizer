@@ -41,7 +41,7 @@ int runTableizerForImage(Mat image, BallDetector& ballDetector) {
     cv::Mat bgraImage;
     cv::cvtColor(image, bgraImage, cv::COLOR_BGR2BGRA);
     const char* jsonResult =
-        detect_table_bgra(bgraImage.data, bgraImage.cols, bgraImage.rows, bgraImage.step);
+        detect_table_bgra(bgraImage.data, bgraImage.cols, bgraImage.rows, bgraImage.step, 0);
 
     if (jsonResult == nullptr) {
         LOGE("Error: FFI detection returned null.");
@@ -80,7 +80,7 @@ int runTableizerForImage(Mat image, BallDetector& ballDetector) {
 
     const char* ballJsonResult =
         detect_balls_bgra(detectorPtr, bgraImage.data, bgraImage.cols, bgraImage.rows,
-                          bgraImage.step, quadPointsFlat.data(), quadPoints.size());
+                          bgraImage.step, quadPointsFlat.data(), quadPoints.size(), 0);
 
     if (ballJsonResult == nullptr) {
         LOGE("Error: Ball detection FFI returned null.");
@@ -380,14 +380,14 @@ void* initialize_detector(const char* modelPath) {
 
 const char* detect_balls_bgra(void* detectorPtr, const unsigned char* imageBytes, int width,
                               int height, int stride, const float* quadPoints,
-                              int quadPointsLength) {
+                              int quadPointsLength, int channelFormat) {
     static std::string resultStr;
     if (!detectorPtr) {
         resultStr = "{\"error\": \"Invalid detector instance\"}";
         return resultStr.c_str();
     }
     try {
-        LOGI("[detect_balls_bgra] Input: %dx%d, stride: %d", width, height, stride);
+        LOGI("[detect_balls_bgra] Input: %dx%d, stride: %d, channelFormat: %d", width, height, stride, channelFormat);
         LOGI(
             "[detect_balls_bgra] First 16 bytes: %d,%d,%d,%d | %d,%d,%d,%d | %d,%d,%d,%d | "
             "%d,%d,%d,%d",
@@ -396,15 +396,26 @@ const char* detect_balls_bgra(void* detectorPtr, const unsigned char* imageBytes
             imageBytes[10], imageBytes[11], imageBytes[12], imageBytes[13], imageBytes[14],
             imageBytes[15]);
 
-        cv::Mat bgraImage(height, width, CV_8UC4, (void*)imageBytes, stride);
-        if (bgraImage.empty()) {
+        cv::Mat inputImage(height, width, CV_8UC4, (void*)imageBytes, stride);
+        if (inputImage.empty()) {
             LOGE("[detect_balls_bgra] Failed to create Mat from bytes");
             resultStr = "{\"error\": \"Failed to create image from bytes\"}";
             return resultStr.c_str();
         }
 
-        LOGI("[detect_balls_bgra] Created Mat: %dx%d, channels: %d", bgraImage.cols, bgraImage.rows,
-             bgraImage.channels());
+        LOGI("[detect_balls_bgra] Created Mat: %dx%d, channels: %d", inputImage.cols, inputImage.rows,
+             inputImage.channels());
+
+        // Convert to BGRA if needed (channelFormat: 0=BGRA, 1=RGBA)
+        cv::Mat bgraImage;
+        if (channelFormat == 1) {
+            // Input is RGBA, convert to BGRA
+            LOGI("[detect_balls_bgra] Converting RGBA to BGRA");
+            cv::cvtColor(inputImage, bgraImage, cv::COLOR_RGBA2BGRA);
+        } else {
+            // Input is already BGRA
+            bgraImage = inputImage;
+        }
 
         // Sample a pixel from the center to verify color values
         cv::Vec4b centerPixel = bgraImage.at<cv::Vec4b>(height / 2, width / 2);
@@ -470,14 +481,27 @@ void release_detector(void* detectorPtr) {
     }
 }
 
-const char* detect_table_bgra(const unsigned char* imageBytes, int width, int height, int stride) {
+const char* detect_table_bgra(const unsigned char* imageBytes, int width, int height, int stride, int channelFormat) {
     static std::string resultStr;
     try {
-        cv::Mat bgraImageUnrotated(height, width, CV_8UC4, (void*)imageBytes, stride);
-        if (bgraImageUnrotated.empty()) {
-            LOGE("Failed to create image from bytes.");
+        LOGI("[detect_table_bgra] Input: %dx%d, stride: %d, channelFormat: %d", width, height, stride, channelFormat);
+
+        cv::Mat inputImage(height, width, CV_8UC4, (void*)imageBytes, stride);
+        if (inputImage.empty()) {
+            LOGE("[detect_table_bgra] Failed to create image from bytes.");
             resultStr = "{\"error\": \"Failed to create image from bytes\"}";
             return resultStr.c_str();
+        }
+
+        // Convert to BGRA if needed (channelFormat: 0=BGRA, 1=RGBA)
+        cv::Mat bgraImageUnrotated;
+        if (channelFormat == 1) {
+            // Input is RGBA, convert to BGRA
+            LOGI("[detect_table_bgra] Converting RGBA to BGRA");
+            cv::cvtColor(inputImage, bgraImageUnrotated, cv::COLOR_RGBA2BGRA);
+        } else {
+            // Input is already BGRA
+            bgraImageUnrotated = inputImage;
         }
 
         TableDetector tableDetector(RESIZE_MAX_SIZE, CELL_SIZE, DELTAE_THRESH);
@@ -691,12 +715,12 @@ const char* transform_points_using_quad(const float* pointsData, int pointsCount
 
 const char* normalize_image_bgra(const unsigned char* inputBytes, int inputWidth, int inputHeight,
                                  int inputStride, int rotationDegrees, unsigned char* outputBytes,
-                                 int outputBufferSize) {
+                                 int outputBufferSize, int channelFormat) {
     static std::string resultStr;
 
     try {
-        LOGI("[normalize_image_bgra] Input: %dx%d, stride: %d, rotation: %d", inputWidth,
-             inputHeight, inputStride, rotationDegrees);
+        LOGI("[normalize_image_bgra] Input: %dx%d, stride: %d, rotation: %d, channelFormat: %d", inputWidth,
+             inputHeight, inputStride, rotationDegrees, channelFormat);
 
         // Create Mat from input bytes
         cv::Mat inputImage(inputHeight, inputWidth, CV_8UC4, (void*)inputBytes, inputStride);
@@ -706,6 +730,17 @@ const char* normalize_image_bgra(const unsigned char* inputBytes, int inputWidth
             return resultStr.c_str();
         }
 
+        // Convert to BGRA if needed (channelFormat: 0=BGRA, 1=RGBA)
+        cv::Mat bgraInputImage;
+        if (channelFormat == 1) {
+            // Input is RGBA, convert to BGRA
+            LOGI("[normalize_image_bgra] Converting RGBA to BGRA");
+            cv::cvtColor(inputImage, bgraInputImage, cv::COLOR_RGBA2BGRA);
+        } else {
+            // Input is already BGRA
+            bgraInputImage = inputImage;
+        }
+
         // Apply rotation if needed
         cv::Mat rotatedImage;
         bool wasRotated = false;
@@ -713,22 +748,22 @@ const char* normalize_image_bgra(const unsigned char* inputBytes, int inputWidth
         int rotatedHeight = inputHeight;
 
         if (rotationDegrees == 90) {
-            cv::rotate(inputImage, rotatedImage, cv::ROTATE_90_CLOCKWISE);
+            cv::rotate(bgraInputImage, rotatedImage, cv::ROTATE_90_CLOCKWISE);
             wasRotated = true;
             rotatedWidth = inputHeight;
             rotatedHeight = inputWidth;
         } else if (rotationDegrees == 270 || rotationDegrees == -90) {
-            cv::rotate(inputImage, rotatedImage, cv::ROTATE_90_COUNTERCLOCKWISE);
+            cv::rotate(bgraInputImage, rotatedImage, cv::ROTATE_90_COUNTERCLOCKWISE);
             wasRotated = true;
             rotatedWidth = inputHeight;
             rotatedHeight = inputWidth;
         } else if (rotationDegrees == 180) {
-            cv::rotate(inputImage, rotatedImage, cv::ROTATE_180);
+            cv::rotate(bgraInputImage, rotatedImage, cv::ROTATE_180);
             wasRotated = true;
             rotatedWidth = inputWidth;
             rotatedHeight = inputHeight;
         } else {
-            rotatedImage = inputImage;
+            rotatedImage = bgraInputImage;
         }
 
         LOGI("[normalize_image_bgra] After rotation: %dx%d, wasRotated: %s", rotatedWidth,
@@ -764,14 +799,17 @@ const char* normalize_image_bgra(const unsigned char* inputBytes, int inputWidth
         cv::Rect roi(offsetX, offsetY, rotatedWidth, rotatedHeight);
         rotatedImage.copyTo(canvas(roi));
 
+        // Convert final canvas from BGRA to RGBA for a consistent pipeline output
+        cv::Mat rgbaCanvas;
+        cv::cvtColor(canvas, rgbaCanvas, cv::COLOR_BGRA2RGBA);
+
         // Copy canvas data to output buffer
-        // Canvas is already in BGRA format with dense stride
-        if (canvas.isContinuous()) {
-            std::memcpy(outputBytes, canvas.data, requiredSize);
+        if (rgbaCanvas.isContinuous()) {
+            std::memcpy(outputBytes, rgbaCanvas.data, requiredSize);
         } else {
             // Copy row by row if not continuous
             for (int y = 0; y < canvasHeight; ++y) {
-                std::memcpy(outputBytes + y * canvasWidth * 4, canvas.ptr(y), canvasWidth * 4);
+                std::memcpy(outputBytes + y * canvasWidth * 4, rgbaCanvas.ptr(y), canvasWidth * 4);
             }
         }
 

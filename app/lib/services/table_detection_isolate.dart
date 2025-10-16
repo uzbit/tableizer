@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:ffi' hide Size;
+import 'dart:io';
 import 'dart:isolate';
 import 'dart:typed_data';
 import 'dart:ui';
@@ -13,9 +14,9 @@ import '../native/library_loader.dart';
 
 // --- FFI Function Signatures ---
 typedef DetectTableBgraC = Pointer<Utf8> Function(
-    Pointer<Uint8> imageBytes, Int32 width, Int32 height, Int32 stride);
+    Pointer<Uint8> imageBytes, Int32 width, Int32 height, Int32 stride, Int32 channelFormat);
 typedef DetectTableBgraDart = Pointer<Utf8> Function(
-    Pointer<Uint8> imageBytes, int width, int height, int stride);
+    Pointer<Uint8> imageBytes, int width, int height, int stride, int channelFormat);
 
 typedef NormalizeImageBgraC = Pointer<Utf8> Function(
     Pointer<Uint8> inputBytes,
@@ -24,7 +25,8 @@ typedef NormalizeImageBgraC = Pointer<Utf8> Function(
     Int32 inputStride,
     Int32 rotationDegrees,
     Pointer<Uint8> outputBytes,
-    Int32 outputBufferSize);
+    Int32 outputBufferSize,
+    Int32 channelFormat);
 typedef NormalizeImageBgraDart = Pointer<Utf8> Function(
     Pointer<Uint8> inputBytes,
     int inputWidth,
@@ -32,7 +34,8 @@ typedef NormalizeImageBgraDart = Pointer<Utf8> Function(
     int inputStride,
     int rotationDegrees,
     Pointer<Uint8> outputBytes,
-    int outputBufferSize);
+    int outputBufferSize,
+    int channelFormat);
 
 /// The entry point for the table detection isolate.
 void tableDetectionIsolateEntry(List<dynamic> args) async {
@@ -61,6 +64,9 @@ void tableDetectionIsolateEntry(List<dynamic> args) async {
   final Pointer<Uint8> inputPtr = calloc<Uint8>(3840 * 2160 * 4);
   // Output buffer for normalized image (16:9 canvas)
   final Pointer<Uint8> outputPtr = calloc<Uint8>(3840 * 2160 * 4);
+
+  // Channel format: 0=BGRA (Android), 1=RGBA (iOS)
+  final int channelFormat = Platform.isIOS ? 1 : 0;
 
   receivePort.listen((dynamic message) {
     if (message is AnalysisImage) {
@@ -100,6 +106,7 @@ void tableDetectionIsolateEntry(List<dynamic> args) async {
             rotationDegrees,
             outputPtr,
             3840 * 2160 * 4, // output buffer size
+            channelFormat,
           );
 
           if (normalizeResult == nullptr) {
@@ -135,12 +142,13 @@ void tableDetectionIsolateEntry(List<dynamic> args) async {
             unpaddedHeight = capturedHeight;
           }
 
-          // Call table detection with normalized image
+          // Call table detection with normalized image (output is always BGRA after normalization)
           resultPtr = detectTableBgra(
             outputPtr,
             normalizedWidth,
             normalizedHeight,
             normalizedStride,
+            1, // After normalization, output is always RGBA
           );
 
           if (resultPtr != nullptr) {

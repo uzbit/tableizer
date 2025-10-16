@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
@@ -344,14 +345,18 @@ class _BgraImageWidget extends StatelessWidget {
 
   Future<ui.Image> _createImageFromBgra(Uint8List bgra, int width, int height) async {
     print('[_BgraImageWidget] Creating image from ${bgra.length} bytes, size: ${width}x$height');
-    print('[_BgraImageWidget] First 16 bytes (BGRA pixels): ${bgra.sublist(0, 16)}');
+    print('[_BgraImageWidget] First 16 bytes: ${bgra.sublist(0, 16)}');
+
+    // The native pipeline is now standardized to always output RGBA.
+    const pixelFormat = ui.PixelFormat.rgba8888;
+    print('[_BgraImageWidget] Using pixel format: RGBA (all platforms)');
 
     final completer = Completer<ui.Image>();
     ui.decodeImageFromPixels(
-      bgra,
+      bgra, // variable name is now a misnomer, but we'll leave it
       width,
       height,
-      ui.PixelFormat.rgba8888, // Note: Using RGBA interpretation to fix color swap for display
+      pixelFormat,
       (ui.Image image) {
         completer.complete(image);
       },

@@ -7,7 +7,7 @@
 
 #include "quad_analysis.hpp"
 
-#define DEBUG_OUTPUT 0
+#define DEBUG_OUTPUT 1
 
 #define DEBUG_POINT std::cout << "Reached " << __FILE__ << ":" << __LINE__ << std::endl;
 

@@ -21,7 +21,7 @@ int main() {
     cv::cvtColor(image, bgra_image, cv::COLOR_BGR2BGRA);
 
     const char* jsonResult = detect_table_bgra(bgra_image.data, bgra_image.cols, bgra_image.rows,
-                                               bgra_image.step);
+                                               bgra_image.step, 0); // 0 = BGRA format
 
     if (jsonResult == nullptr) {
         std::cerr << "Error: detect_table_bgra returned null." << std::endl;

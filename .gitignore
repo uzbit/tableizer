@@ -10,6 +10,7 @@ data/
 *.jpeg
 *.so
 app/ios/Podfile.lock
+app/ios/libtableizer_lib*
 
 # CMake build files
 [Bb]uild/

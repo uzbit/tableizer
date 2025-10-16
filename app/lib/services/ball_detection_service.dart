@@ -20,7 +20,8 @@ typedef DetectBallsBGRAC = Pointer<Utf8> Function(
     Int32 height,
     Int32 stride,
     Pointer<Float> quadPoints,
-    Int32 quadPointsLength);
+    Int32 quadPointsLength,
+    Int32 channelFormat);
 typedef DetectBallsBGRADart = Pointer<Utf8> Function(
     Pointer<Void> detector,
     Pointer<Uint8> imageBytes,
@@ -28,7 +29,8 @@ typedef DetectBallsBGRADart = Pointer<Utf8> Function(
     int height,
     int stride,
     Pointer<Float> quadPoints,
-    int quadPointsLength);
+    int quadPointsLength,
+    int channelFormat);
 
 typedef ReleaseDetectorC = Void Function(Pointer<Void> detector);
 typedef ReleaseDetectorDart = void Function(Pointer<Void> detector);
@@ -40,7 +42,8 @@ typedef NormalizeImageBgraC = Pointer<Utf8> Function(
     Int32 inputStride,
     Int32 rotationDegrees,
     Pointer<Uint8> outputBytes,
-    Int32 outputBufferSize);
+    Int32 outputBufferSize,
+    Int32 channelFormat);
 typedef NormalizeImageBgraDart = Pointer<Utf8> Function(
     Pointer<Uint8> inputBytes,
     int inputWidth,
@@ -48,7 +51,8 @@ typedef NormalizeImageBgraDart = Pointer<Utf8> Function(
     int inputStride,
     int rotationDegrees,
     Pointer<Uint8> outputBytes,
-    int outputBufferSize);
+    int outputBufferSize,
+    int channelFormat);
 
 class BallDetectionService {
   Pointer<Void> _detector = nullptr;
@@ -58,6 +62,9 @@ class BallDetectionService {
   late final NormalizeImageBgraDart _normalizeImageBgra;
 
   bool _isDetecting = false;
+
+  // Channel format: 0=BGRA (Android), 1=RGBA (iOS)
+  int get _channelFormat => Platform.isIOS ? 1 : 0;
 
   // ────────── PUBLIC API ──────────
   Future<void> initialize() async {
@@ -114,6 +121,7 @@ class BallDetectionService {
         rotationDegrees,
         outputPtr,
         maxOutputSize,
+        _channelFormat,
       );
 
       if (normalizeResult == nullptr) {
@@ -156,6 +164,7 @@ class BallDetectionService {
         normalizedStride,
         quadPtr ?? nullptr,
         quadPoints?.length ?? 0,
+        1, // After normalization, output is always RGBA
       );
 
       final jsonStr = jsonPtr.toDartString();
@@ -215,6 +224,7 @@ class BallDetectionService {
         stride,
         quadPtr ?? nullptr,
         quadPoints?.length ?? 0,
+        1, // Pre-normalized bytes are now RGBA
       );
 
       final jsonStr = jsonPtr.toDartString();

@@ -95,8 +95,7 @@ class TableizerFFI:
             c_int,  # width
             c_int,  # height
             c_int,  # stride
-            c_int,  # rotation_degrees
-            c_char_p,  # debug_image_path
+            c_int,  # channel_format (0=BGRA, 1=RGBA)
         ]
         self.lib.detect_table_bgra.restype = c_char_p
 
@@ -110,6 +109,7 @@ class TableizerFFI:
             c_int,  # image_height
             c_int,  # display_width
             c_int,  # display_height
+            c_int,  # input_rotation_degrees
         ]
         self.lib.transform_points_using_quad.restype = c_char_p
 
@@ -150,14 +150,13 @@ class TableizerFFI:
 
         try:
             # Call C++ BGRA function
-            debug_path_ptr = None  # No debug output for now
+            # Channel format: 0=BGRA (OpenCV default), 1=RGBA
             result_ptr = self.lib.detect_table_bgra(
                 image_ptr,
                 c_int(width),
                 c_int(height),
                 c_int(stride),
-                c_int(rotation_degrees),  # rotation_degrees parameter
-                debug_path_ptr,  # debug_image_path parameter
+                c_int(0),  # channel_format: 0=BGRA (OpenCV uses BGRA by default)
             )
 
             if not result_ptr:
@@ -191,7 +190,7 @@ class TableizerFFI:
             print(f"Error in table detection: {e}")
             return None
 
-    def transform_points(self, points, quad_points, image_size, display_size):
+    def transform_points(self, points, quad_points, image_size, display_size, rotation_degrees=0):
         """
         Transform points using quad-to-rectangle perspective transformation.
 
@@ -205,6 +204,8 @@ class TableizerFFI:
             (width, height) of the source image
         display_size : tuple
             (width, height) of the destination display
+        rotation_degrees : int, optional
+            Rotation in degrees (0, 90, 180, 270), default 0
 
         Returns
         -------
@@ -244,6 +245,7 @@ class TableizerFFI:
                 c_int(image_size[1]),  # height
                 c_int(display_size[0]),  # width
                 c_int(display_size[1]),  # height
+                c_int(rotation_degrees),  # input_rotation_degrees
             )
 
             if not result_ptr:
@@ -294,10 +296,10 @@ def detect_table_cpp(image, rotation_degrees=0, debug_path=None):
     return ffi.detect_table(image, rotation_degrees, debug_path)
 
 
-def transform_points_cpp(points, quad_points, image_size, display_size):
+def transform_points_cpp(points, quad_points, image_size, display_size, rotation_degrees=0):
     """Convenience function for point transformation using C++ implementation."""
     ffi = get_tableizer_ffi()
-    return ffi.transform_points(points, quad_points, image_size, display_size)
+    return ffi.transform_points(points, quad_points, image_size, display_size, rotation_degrees)
 
 
 if __name__ == "__main__":

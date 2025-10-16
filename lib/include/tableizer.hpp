@@ -22,10 +22,10 @@ __attribute__((visibility("default"))) __attribute__((used)) void* initialize_de
 
 __attribute__((visibility("default"))) __attribute__((used)) const char* detect_balls_bgra(
     void* detectorPtr, const unsigned char* imageBytes, int width, int height, int stride,
-    const float* quadPoints, int quadPointsLength);
+    const float* quadPoints, int quadPointsLength, int channelFormat);
 
 __attribute__((visibility("default"))) __attribute__((used)) const char* detect_table_bgra(
-    const unsigned char* imageBytes, int width, int height, int stride);
+    const unsigned char* imageBytes, int width, int height, int stride, int channelFormat);
 
 __attribute__((visibility("default"))) __attribute__((used)) void release_detector(
     void* detectorPtr);
@@ -37,7 +37,7 @@ transform_points_using_quad(const float* pointsData, int pointsCount, const floa
 
 __attribute__((visibility("default"))) __attribute__((used)) const char* normalize_image_bgra(
     const unsigned char* inputBytes, int inputWidth, int inputHeight, int inputStride,
-    int rotationDegrees, unsigned char* outputBytes, int outputBufferSize);
+    int rotationDegrees, unsigned char* outputBytes, int outputBufferSize, int channelFormat);
 
 #ifdef __cplusplus
 }
