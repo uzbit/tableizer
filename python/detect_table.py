@@ -24,7 +24,7 @@ from tableizer_ffi import detect_table_cpp, transform_points_cpp
 # CONFIGURATION & CONSTANTS
 # ============================================================================
 
-MODEL_NAMES = ["baseline", "combined", "combined2"]
+MODEL_NAMES = ["baseline", "combined", "combined2", "combined3"]
 SHOTSTUDIO_BG_PATH = "../data/shotstudio_table_felt_only.png"
 
 # Processing parameters
@@ -158,12 +158,14 @@ def extract_table_region(original_img, quad):
 # BALL DETECTION FUNCTIONS
 # ============================================================================
 
-def get_balls_from_image(image_input, model_path):
+def get_balls_from_image(image_input, model_path, quad=None):
     """Extract ball centers, classes, and confidences from an image using YOLO detection.
 
     Args:
         image_input: Either a file path (str) or image array (np.ndarray)
         model_path (str): Path to the YOLO model weights
+        quad (np.ndarray or None): Quadrilateral points (4, 2) to mask the image. If provided,
+                                    only the region inside the quad will be used for detection.
 
     Returns:
         tuple: (ball_centers, ball_classes, ball_confidences) where:
@@ -172,9 +174,25 @@ def get_balls_from_image(image_input, model_path):
             - ball_confidences: np.ndarray of shape (N,) with detection confidences
         Returns (None, None, None) if no balls detected
     """
+    # Apply mask if quad is provided (same as C++ createMaskedImage)
+    if quad is not None and isinstance(image_input, np.ndarray):
+        # Create a zeros mask
+        mask = np.zeros(image_input.shape[:2], dtype=np.uint8)
+
+        # Fill the quad region with white
+        quad_int = np.round(quad).astype(np.int32)
+        cv2.fillConvexPoly(mask, quad_int, 255)
+
+        # Apply mask to image (zero out everything outside quad)
+        image_for_detection = cv2.bitwise_and(image_input, image_input, mask=mask)
+
+        print(f"Applied mask using quad points for ball detection")
+    else:
+        image_for_detection = image_input
+
     model = load_detection_model(model_path)
 
-    results = model(image_input)
+    results = model(image_for_detection)
     boxes = results[0].boxes
 
     if len(boxes) == 0:
@@ -445,6 +463,21 @@ def get_shotstudio_background():
 # LOGGING FUNCTIONS
 # ============================================================================
 
+def print_model_banner(model_name):
+    """Print a completion banner for a model.
+
+    Args:
+        model_name (str): Name of the model
+    """
+    print("\n" + "=" * 100)
+    print("=" * 100)
+    print(f"{'':^100}")
+    print(f"MODEL: {model_name.upper()} - COMPLETE".center(100))
+    print(f"{'':^100}")
+    print("=" * 100)
+    print("=" * 100 + "\n")
+
+
 def get_detection_stats(detection_data):
     """Calculate detection statistics from detection data.
 
@@ -674,7 +707,7 @@ def write_results_to_xlsx(results_dict, output_file="detection_results.xlsx"):
 # MAIN PROCESSING FUNCTIONS
 # ============================================================================
 
-def process_balls_and_visualize(img, quad, orig_quad_points, orig_img_size, model_path):
+def process_balls_and_visualize(img, quad, orig_quad_points, orig_img_size, model_path, model_name):
     """Detect balls, transform coordinates, and create visualizations.
 
     Args:
@@ -683,12 +716,13 @@ def process_balls_and_visualize(img, quad, orig_quad_points, orig_img_size, mode
         orig_quad_points (list): Original quad points as list of tuples
         orig_img_size (tuple): Original image size (width, height)
         model_path (str): Path to the YOLO model weights
+        model_name (str): Name of the model being used
 
     Returns:
         dict or None: Detection data with keys 'positions', 'classes', 'confidences', or None if no balls detected
     """
-    # Get ball detections and transform directly to ShotStudio coordinates
-    ball_centers, ball_classes, ball_confidences = get_balls_from_image(img, model_path)
+    # Get ball detections with masking (same as C++ library)
+    ball_centers, ball_classes, ball_confidences = get_balls_from_image(img, model_path, quad=quad)
 
     if ball_centers is None or len(ball_centers) == 0:
         print("No balls detected")
@@ -722,42 +756,42 @@ def process_balls_and_visualize(img, quad, orig_quad_points, orig_img_size, mode
         ball_centers,
         ball_classes,
         temp_img,
-        "Original Image with Detections",
+        f"[{model_name.upper()}] Original Image with Detections",
         use_circle_indicators=True,
     )
 
-    # Extract table region in portrait mode (same size as ShotStudio)
-    extracted_table = extract_table_region(img, quad)
+    # # Extract table region in portrait mode (same size as ShotStudio)
+    # extracted_table = extract_table_region(img, quad)
 
-    # Transform ball positions for the extracted table region
-    extracted_ball_positions = transform_balls_for_extracted_table(ball_centers, quad)
+    # # Transform ball positions for the extracted table region
+    # extracted_ball_positions = transform_balls_for_extracted_table(ball_centers, quad)
 
-    # Draw balls on extracted table region (circle indicators)
-    draw_ball_overlay_on_image(
-        extracted_ball_positions,
-        ball_classes,
-        extracted_table,
-        "Extracted Table with Ball Detections",
-        use_circle_indicators=True,
-    )
+    # # Draw balls on extracted table region (circle indicators)
+    # draw_ball_overlay_on_image(
+    #     extracted_ball_positions,
+    #     ball_classes,
+    #     extracted_table,
+    #     f"[{model_name.upper()}] Extracted Table with Ball Detections",
+    #     use_circle_indicators=True,
+    # )
 
-    # Get prepared ShotStudio background (loaded and cached)
-    shotstudio_bg = get_shotstudio_background()
-    if shotstudio_bg is None:
-        return {
-            'positions': ball_centers,
-            'classes': ball_classes,
-            'confidences': ball_confidences
-        }
+    # # Get prepared ShotStudio background (loaded and cached)
+    # shotstudio_bg = get_shotstudio_background()
+    # if shotstudio_bg is None:
+    #     return {
+    #         'positions': ball_centers,
+    #         'classes': ball_classes,
+    #         'confidences': ball_confidences
+    #     }
 
-    # Draw balls on ShotStudio background with same positions and style as extracted table
-    draw_ball_overlay_on_image(
-        extracted_ball_positions,
-        ball_classes,
-        shotstudio_bg,
-        "ShotStudio with Ball Detections",
-        use_circle_indicators=True,
-    )
+    # # Draw balls on ShotStudio background with same positions and style as extracted table
+    # draw_ball_overlay_on_image(
+    #     extracted_ball_positions,
+    #     ball_classes,
+    #     shotstudio_bg,
+    #     f"[{model_name.upper()}] ShotStudio with Ball Detections",
+    #     use_circle_indicators=True,
+    # )
 
     # Wait for user input to close windows
     if DO_PLOT:
@@ -782,14 +816,6 @@ def run_detect(img, quad, model_name):
     Returns:
         dict or None: Detection data with keys 'positions', 'classes', 'confidences', or None if detection failed
     """
-    print("\n" + "=" * 100)
-    print("=" * 100)
-    print(f"{'':^100}")
-    print(f"MODEL: {model_name.upper()}".center(100))
-    print(f"{'':^100}")
-    print("=" * 100)
-    print("=" * 100 + "\n")
-
     model_path = f"/Users/uzbit/Documents/projects/tableizer/tableizer/{model_name}/weights/best.pt"
 
     # Check if ShotStudio background exists before processing
@@ -800,7 +826,7 @@ def run_detect(img, quad, model_name):
     # Process balls and create all visualizations
     orig_quad_points = [(pt[0], pt[1]) for pt in quad]
     orig_img_size = (img.shape[1], img.shape[0])
-    detection_data = process_balls_and_visualize(img, quad, orig_quad_points, orig_img_size, model_path)
+    detection_data = process_balls_and_visualize(img, quad, orig_quad_points, orig_img_size, model_path, model_name)
     return detection_data
 
 
@@ -860,9 +886,9 @@ def main():
             continue
 
         # Show quad detection once
-        visualize_quad_detection(img, quad)
-        if DO_PLOT:
-            cv2.waitKey(0)
+        # visualize_quad_detection(img, quad)
+        # if DO_PLOT:
+        #     cv2.waitKey(0)
 
         # Run ball detection with each model using the same quad
         # Store full detection data for each model
@@ -872,6 +898,9 @@ def main():
             detection_data_by_model[model_name] = detection_data
             stats = get_detection_stats(detection_data)
             print(f"[{model_name}] {image_name}: {stats}")
+
+            # Print completion banner
+            print_model_banner(model_name)
 
         # Compute baseline comparisons and merge with base stats
         results[image_name] = {}
@@ -888,7 +917,7 @@ def main():
                 stats.update(comparison_stats)
 
             results[image_name][model_name] = stats
-
+            
     # Write all results to Excel
     write_results_to_xlsx(results)
 

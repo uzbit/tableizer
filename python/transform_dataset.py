@@ -120,10 +120,18 @@ def transform_ball_positions(ball_centers, transformation_matrix):
 
 
 def process_single_image(
-    img_path, label_path, output_images_dir, output_labels_dir, visualize=False
+    img_path, label_path, output_images_dir, output_labels_dir, visualize=False, require_valid=False
 ):
     """
     Process a single image: detect table, extract region, transform labels.
+
+    Args:
+        img_path: Path to input image
+        label_path: Path to input label file
+        output_images_dir: Directory to save extracted images
+        output_labels_dir: Directory to save transformed labels
+        visualize: Whether to show visualization
+        require_valid: If True, skip images with orientation="OTHER"
 
     Returns:
         bool: True if successful, False if failed
@@ -139,16 +147,35 @@ def process_single_image(
         print(f"Processing: {os.path.basename(img_path)} ({img_width}x{img_height})")
 
         # Detect table using C++
-        quad_points_dict = detect_table_cpp(image, rotation_degrees=0)
-        if not quad_points_dict or len(quad_points_dict) != 4:
+        detection_result = detect_table_cpp(image, rotation_degrees=0)
+        if not detection_result or "quad_points" not in detection_result:
             print(f"  ❌ Table detection failed")
             return False
 
+        quad_points_list = detection_result["quad_points"]
+        if len(quad_points_list) != 4:
+            print(f"  ❌ Invalid quad points count: {len(quad_points_list)}")
+            return False
+
+        # Extract orientation info
+        orientation = detection_result.get("orientation", "UNKNOWN")
+
         # Convert quad points to numpy array
         quad = np.array(
-            [[pt["x"], pt["y"]] for pt in quad_points_dict], dtype=np.float32
+            [[pt[0], pt[1]] for pt in quad_points_list], dtype=np.float32
         )
-        print(f"  ✅ Table detected")
+
+        # Print detection info with orientation
+        print(f"  ✅ Table detected - Orientation: {orientation}")
+
+        # Check orientation if required (skip only if orientation is OTHER)
+        if require_valid and orientation == "OTHER":
+            print(f"  ⚠️  Skipping image with OTHER orientation")
+            return False
+
+        # Print if image is being kept
+        if require_valid:
+            print(f"  ✓ Keeping image")
 
         # Load YOLO labels using utilities function
         labels = load_yolo_labels_simple(label_path)
@@ -217,9 +244,15 @@ def process_single_image(
         print(f"  💾 Saved: {img_basename} + {label_basename}")
 
         # Show visualization while processing (if enabled)
-        if visualize and bbox_corners:
+        if visualize:
+            # Show original image with quad and labels
+            if bbox_corners:
+                visualize_quad_and_labels(
+                    image, quad, labels, f"Original: {img_basename}"
+                )
+            # Show transformed image with labels
             visualize_transformation(
-                extracted_table, new_labels, f"Processing: {img_basename}"
+                extracted_table, new_labels, f"Transformed: {img_basename}"
             )
 
         return True
@@ -227,6 +260,72 @@ def process_single_image(
     except Exception as e:
         print(f"  ❌ Error processing {img_path}: {e}")
         return False
+
+
+def visualize_quad_and_labels(original_image, quad, normalized_labels, title="Original Image"):
+    """Visualize the original image with detected quad and ball bounding boxes.
+
+    Args:
+        original_image: Original image with quad
+        quad: Quadrilateral points (4, 2)
+        normalized_labels: YOLO normalized labels
+        title: Window title
+    """
+    overlay = original_image.copy()
+    img_height, img_width = original_image.shape[:2]
+
+    # Draw quad with red polyline and corner points (like detect_table.py)
+    cv2.polylines(overlay, [quad.astype(int)], True, (0, 0, 255), 2)
+    for p in quad.astype(int):
+        cv2.circle(overlay, tuple(p), 6, (0, 0, 255), -1)
+
+    # Ball colors - ordered by class: ["black", "cue", "solid", "stripe"]
+    ball_colors = [
+        (0, 0, 0),  # Class 0: Black
+        (255, 255, 255),  # Class 1: Cue - White
+        (0, 0, 255),  # Class 2: Solid - Red
+        (0, 255, 255),  # Class 3: Stripe - Yellow
+    ]
+
+    # Draw ball bounding boxes
+    for label in normalized_labels:
+        class_id, cx_norm, cy_norm, w_norm, h_norm = label
+
+        # Convert to pixel coordinates
+        cx_px = int(cx_norm * img_width)
+        cy_px = int(cy_norm * img_height)
+        w_px = int(w_norm * img_width)
+        h_px = int(h_norm * img_height)
+
+        # Calculate bounding box corners
+        x1 = int(cx_px - w_px / 2)
+        y1 = int(cy_px - h_px / 2)
+        x2 = int(cx_px + w_px / 2)
+        y2 = int(cy_px + h_px / 2)
+
+        color = ball_colors[int(class_id) % len(ball_colors)]
+
+        # Draw bounding box rectangle
+        cv2.rectangle(overlay, (x1, y1), (x2, y2), color, 2)
+
+        # Draw center point
+        cv2.circle(overlay, (cx_px, cy_px), 3, color, -1)
+
+        # Add class label
+        cv2.putText(
+            overlay,
+            f"{int(class_id)}",
+            (x1, y1 - 5),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.5,
+            color,
+            2,
+            cv2.LINE_AA,
+        )
+
+    cv2.imshow(title, overlay)
+    cv2.waitKey(0)
+    cv2.destroyAllWindows()
 
 
 def visualize_transformation(image, normalized_labels, title="Transformed Image"):
@@ -282,7 +381,7 @@ def visualize_transformation(image, normalized_labels, title="Transformed Image"
     cv2.destroyAllWindows()
 
 
-def batch_process_dataset(input_dir, output_dir, visualize_samples=False):
+def batch_process_dataset(input_dir, output_dir, visualize_samples=False, require_valid=False):
     """
     Process entire pix2pockets dataset.
 
@@ -290,11 +389,11 @@ def batch_process_dataset(input_dir, output_dir, visualize_samples=False):
         input_dir: Path to data/pix2pockets/
         output_dir: Path to data/pix2pockets_transformed/
         visualize_samples: Show visualization for sample images
-        max_visualize: Maximum number of samples to visualize
+        require_valid: If True, skip images with orientation="OTHER"
     """
     # Step 1: Use LabelRemapper to create clean dataset first
     temp_dir = os.path.join(output_dir, "temp_remapped")
-    oldToNewMap = {4: 3, 3: 2, 1: 1, 0: 0}  # original → remapped (from model_table.py)
+    oldToNewMap = {3: 3, 2: 2, 1: 1, 0: 0}  # original → remapped (from model_table.py)
 
     images_dir = os.path.join(input_dir, "images")
     labels_dir = os.path.join(input_dir, "labels")
@@ -330,19 +429,21 @@ def batch_process_dataset(input_dir, output_dir, visualize_samples=False):
 
     successful = 0
     failed = 0
+    total = len(image_files)
 
     for i, img_path in enumerate(tqdm(image_files, desc="Processing images")):
         # Find corresponding label file in remapped directory
         img_name = Path(img_path).stem
         label_path = os.path.join(remapped_labels_dir, f"{img_name}.txt")
 
-        # Process image with optional visualization
+        # Process image with optional visualization and validation
         success = process_single_image(
             img_path,
             label_path,
             output_images_dir,
             output_labels_dir,
             visualize=visualize_samples,
+            require_valid=require_valid,
         )
 
         if success:
@@ -351,26 +452,60 @@ def batch_process_dataset(input_dir, output_dir, visualize_samples=False):
             failed += 1
 
     print(f"\n📊 Processing complete:")
-    print(f"  ✅ Successful: {successful}")
-    print(f"  ❌ Failed: {failed}")
+    print(f"  ✅ Kept: {successful} / {total} images ({100*successful/total:.1f}%)")
+    print(f"  ❌ Skipped: {failed} / {total} images ({100*failed/total:.1f}%)")
     print(f"  📁 Output saved to: {output_dir}")
 
 
 def main():
     """Main entry point for dataset transformation."""
-    input_dir = "../data/pix2pockets"
-    output_dir = "../data/pix2pockets_transformed"
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        description="Transform pool table dataset: extract table regions and update ball labels"
+    )
+    parser.add_argument(
+        "input_dir",
+        help="Input directory containing images/ and labels/ subdirectories"
+    )
+    parser.add_argument(
+        "-o", "--output",
+        default=None,
+        help="Output directory (default: <input_dir>_transformed)"
+    )
+    parser.add_argument(
+        "--visualize",
+        action="store_true",
+        help="Show visualization for each processed image"
+    )
+    parser.add_argument(
+        "--require-valid",
+        action="store_true",
+        help="Skip images with orientation='OTHER'"
+    )
+
+    args = parser.parse_args()
+
+    input_dir = args.input_dir
+    output_dir = args.output if args.output else f"{input_dir}_transformed"
 
     if not os.path.exists(input_dir):
         print(f"❌ Input directory not found: {input_dir}")
-        return
+        sys.exit(1)
 
     print("🏗️  Tableizer Dataset Transformation Pipeline")
     print(f"📂 Input:  {input_dir}")
     print(f"📂 Output: {output_dir}")
+    if args.require_valid:
+        print(f"⚙️  Filtering: Skipping images with orientation='OTHER'")
     print()
 
-    batch_process_dataset(input_dir, output_dir, visualize_samples=True)
+    batch_process_dataset(
+        input_dir,
+        output_dir,
+        visualize_samples=args.visualize,
+        require_valid=args.require_valid
+    )
 
 
 if __name__ == "__main__":

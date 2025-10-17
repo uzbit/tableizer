@@ -205,7 +205,7 @@ def main():
     )
     args = ap.parse_args()
 
-    MODEL_NAME = "combined2"
+    MODEL_NAME = "combined3"
     CONFIG = {
         "srcImgDir": f"data/{MODEL_NAME}/images",
         "srcLblDir": f"data/{MODEL_NAME}/labels",

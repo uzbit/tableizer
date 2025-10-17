@@ -258,13 +258,29 @@ QuadOrientation QuadAnalysis::orientation(const vector<Point2f>& quad) {
         }
     } else if (tbParallel && !lrParallel) {
         // Top/Bottom edges are parallel - viewing from side with horizontal perspective
+
+        // Check if left and right edges are approximately equal length
+        // This should be true for valid side views since they represent the same dimension of the table
+        float lrLengthDiff = std::abs(leftLen - rightLen);
+        float avgLR = (leftLen + rightLen) / 2.0f;
+        float lrLengthRatio = avgLR > 0 ? lrLengthDiff / avgLR : 0.0f;
+        const float LR_LENGTH_TOLERANCE = 0.15f;  // 15% tolerance
+        bool lrLengthsEqual = lrLengthRatio < LR_LENGTH_TOLERANCE;
+
+        LOGI("[QuadAnalysis] Left/Right edge length check:");
+        LOGI("  Left length: %.1f px", leftLen);
+        LOGI("  Right length: %.1f px", rightLen);
+        LOGI("  Difference: %.1f px", lrLengthDiff);
+        LOGI("  Relative difference: %.1f%% (tolerance: %.1f%%)", lrLengthRatio * 100.0f, LR_LENGTH_TOLERANCE * 100.0f);
+        LOGI("  Lengths approximately equal: %s", lrLengthsEqual ? "TRUE" : "FALSE");
+
         // Calculate all four corner angles
         double topLeftAngle = angleBetweenEdges(quad[0], quad[1], quad[0], quad[3]);
         double topRightAngle = angleBetweenEdges(quad[1], quad[0], quad[1], quad[2]);
         double bottomRightAngle = angleBetweenEdges(quad[2], quad[1], quad[2], quad[3]);
         double bottomLeftAngle = angleBetweenEdges(quad[3], quad[0], quad[3], quad[2]);
 
-        LOGI("[QuadAnalysis] SHORT_SIDE angle check:");
+        LOGI("[QuadAnalysis] Side view angle check:");
         LOGI("  Top-left: %.2f°, Top-right: %.2f° (must be > 90°)", topLeftAngle, topRightAngle);
         LOGI("  Bottom-left: %.2f°, Bottom-right: %.2f° (must be < 90°)", bottomLeftAngle,
              bottomRightAngle);
@@ -272,23 +288,30 @@ QuadOrientation QuadAnalysis::orientation(const vector<Point2f>& quad) {
         bool topAnglesObtuse = topLeftAngle > 90.0 && topRightAngle > 90.0;
         bool bottomAnglesAcute = bottomLeftAngle < 90.0 && bottomRightAngle < 90.0;
 
-        if (apparentAspectRatio >= 1.75) {
+        // Both LONG_SIDE and SHORT_SIDE require approximately equal left/right lengths
+        if (!lrLengthsEqual) {
+            result = OTHER;
+            LOGI(
+                "[QuadAnalysis] Decision: OTHER (TB parallel, but left/right lengths not equal: "
+                "diff=%.1f%%, tolerance=%.1f%%)",
+                lrLengthRatio * 100.0f, LR_LENGTH_TOLERANCE * 100.0f);
+        } else if (apparentAspectRatio >= 1.75) {
             result = LONG_SIDE;
             LOGI(
-                "[QuadAnalysis] Decision: LONG_SIDE (TB parallel, LR not parallel, ratio %.3f >= "
-                "1.75)",
+                "[QuadAnalysis] Decision: LONG_SIDE (TB parallel, LR not parallel, LR lengths equal, "
+                "ratio %.3f >= 1.75)",
                 apparentAspectRatio);
         } else if (topAnglesObtuse && bottomAnglesAcute) {
             result = SHORT_SIDE;
             LOGI(
-                "[QuadAnalysis] Decision: SHORT_SIDE (TB parallel, ratio %.3f < 1.75, angles "
-                "correct)",
+                "[QuadAnalysis] Decision: SHORT_SIDE (TB parallel, LR lengths equal, ratio %.3f < 1.75, "
+                "angles correct)",
                 apparentAspectRatio);
         } else {
             result = OTHER;
             LOGI(
-                "[QuadAnalysis] Decision: OTHER (TB parallel, but failed angle checks: top "
-                "obtuse=%s, bottom acute=%s)",
+                "[QuadAnalysis] Decision: OTHER (TB parallel, LR lengths equal, but failed angle checks: "
+                "top obtuse=%s, bottom acute=%s)",
                 topAnglesObtuse ? "PASS" : "FAIL", bottomAnglesAcute ? "PASS" : "FAIL");
         }
     } else if (!tbParallel && lrParallel) {
