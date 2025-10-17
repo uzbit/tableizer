@@ -1,6 +1,12 @@
-# detect_table.py
+#!/usr/bin/env python3
+# detect_transformed_table.py
 # ---------------------------------------------------------------
-"""Pool table detection, ball detection, and coordinate transformation."""
+"""Pool table detection with pre-transformation workflow.
+
+This script transforms the image to normalized coordinates BEFORE detection,
+matching the training data format. Ball positions are directly in ShotStudio
+coordinates without needing post-detection transformation.
+"""
 
 import csv
 import glob
@@ -16,8 +22,9 @@ from utilities import (
     load_detection_model,
     calculate_ball_pixel_size,
     order_quad,
+    extract_table_with_transformation,
 )
-from tableizer_ffi import detect_table_cpp, transform_points_cpp
+from tableizer_ffi import detect_table_cpp
 
 
 # ============================================================================
@@ -40,7 +47,6 @@ DO_PLOT = False  # Set to False to disable all plots
 CIRCLE_RADIUS = 15
 LINE_THICKNESS = 3
 MIN_BALL_SIZE = 8
-ROTATION_THRESHOLD_RATIO = 1.75
 
 # Ball colors (BGR format) - ordered by class: ["black", "cue", "solid", "stripe"]
 BALL_COLORS = [
@@ -52,24 +58,6 @@ BALL_COLORS = [
 
 # Global ShotStudio background (loaded once)
 _SHOTSTUDIO_BG = None
-
-
-# ============================================================================
-# HELPER FUNCTIONS
-# ============================================================================
-
-def _check_rotation_needed(ordered_quad):
-    """Check if table needs rotation from landscape to portrait.
-
-    Args:
-        ordered_quad (np.ndarray): Ordered quadrilateral points (4, 2)
-
-    Returns:
-        bool: True if rotation from landscape to portrait is needed
-    """
-    top_length = np.linalg.norm(ordered_quad[1] - ordered_quad[0])
-    right_length = np.linalg.norm(ordered_quad[2] - ordered_quad[1])
-    return top_length > right_length * ROTATION_THRESHOLD_RATIO
 
 
 # ============================================================================
@@ -106,66 +94,19 @@ def detect_table_and_validate(img):
     return quad
 
 
-def extract_table_region(original_img, quad):
-    """Extract table region using quad and transform to portrait mode (840x1680).
-
-    Args:
-        original_img (np.ndarray): Original input image
-        quad (np.ndarray): Quadrilateral points of table (4, 2)
-
-    Returns:
-        np.ndarray: Extracted and warped table image in portrait mode
-    """
-    ordered_quad = order_quad(quad)
-    needs_rotation = _check_rotation_needed(ordered_quad)
-
-    out_w, out_h = SHOTSTUDIO_SIZE
-
-    if needs_rotation:
-        # Table is landscape in image, needs rotation to portrait
-        # First warp to landscape (1680x840), then rotate to portrait
-        landscape_dst = np.array(
-            [[0, 0], [out_h - 1, 0], [out_h - 1, out_w - 1], [0, out_w - 1]],
-            dtype=np.float32,
-        )
-
-        h_landscape = cv2.getPerspectiveTransform(ordered_quad, landscape_dst)
-
-        # Add 90° CCW rotation: landscape (1680x840) -> portrait (840x1680)
-        rot = np.array([[0, 1, 0], [-1, 0, out_h - 1], [0, 0, 1]], np.float32)
-        h_final = rot @ h_landscape
-        extracted = cv2.warpPerspective(original_img, h_final, (out_w, out_h))
-    else:
-        # Table is already portrait in image, direct warp
-        portrait_dst = np.array(
-            [[0, 0], [out_w - 1, 0], [out_w - 1, out_h - 1], [0, out_h - 1]],
-            dtype=np.float32,
-        )
-
-        h = cv2.getPerspectiveTransform(ordered_quad, portrait_dst)
-        extracted = cv2.warpPerspective(original_img, h, (out_w, out_h))
-
-    top_length = np.linalg.norm(ordered_quad[1] - ordered_quad[0])
-    right_length = np.linalg.norm(ordered_quad[2] - ordered_quad[1])
-    print(
-        f"Table extraction: needs_rotation={needs_rotation}, "
-        f"top_length={top_length:.1f}, right_length={right_length:.1f}"
-    )
-    return extracted
-
-
 # ============================================================================
 # BALL DETECTION FUNCTIONS
 # ============================================================================
 
-def get_balls_from_image(image_input, model_path, quad=None):
-    """Extract ball centers, classes, and confidences from an image using YOLO detection.
+def get_balls_from_transformed_image(transformed_img, model_path):
+    """Extract ball centers, classes, and confidences from a transformed image.
+
+    Since the image is already transformed to show only the table region,
+    no masking is needed. Ball positions will be in ShotStudio coordinates.
 
     Args:
-        image_input: Either a file path (str) or image array (np.ndarray)
+        transformed_img (np.ndarray): Transformed table image (840x1680)
         model_path (str): Path to the YOLO model weights
-        quad (np.ndarray or None): Quadrilateral points (4, 2) to mask the image. If provided,
-                                    only the region inside the quad will be used for detection.
 
     Returns:
         tuple: (ball_centers, ball_classes, ball_confidences) where:
@@ -174,25 +115,9 @@ def get_balls_from_image(image_input, model_path, quad=None):
             - ball_confidences: np.ndarray of shape (N,) with detection confidences
         Returns (None, None, None) if no balls detected
     """
-    # Apply mask if quad is provided (same as C++ createMaskedImage)
-    if quad is not None and isinstance(image_input, np.ndarray):
-        # Create a zeros mask
-        mask = np.zeros(image_input.shape[:2], dtype=np.uint8)
-
-        # Fill the quad region with white
-        quad_int = np.round(quad).astype(np.int32)
-        cv2.fillConvexPoly(mask, quad_int, 255)
-
-        # Apply mask to image (zero out everything outside quad)
-        image_for_detection = cv2.bitwise_and(image_input, image_input, mask=mask)
-
-        print(f"Applied mask using quad points for ball detection")
-    else:
-        image_for_detection = image_input
-
     model = load_detection_model(model_path)
 
-    results = model(image_for_detection)
+    results = model(transformed_img)
     boxes = results[0].boxes
 
     if len(boxes) == 0:
@@ -246,66 +171,9 @@ def get_balls_from_image(image_input, model_path, quad=None):
 
     print(f"Ball confidences: {ball_confidences}")
     print(f"Final ball count: {len(ball_centers)}")
+    print(f"Ball positions in ShotStudio coordinates: {ball_centers}")
 
     return ball_centers, ball_classes, ball_confidences
-
-
-# ============================================================================
-# TRANSFORMATION FUNCTIONS
-# ============================================================================
-
-def transform_balls_for_extracted_table(ball_centers, quad):
-    """Transform ball positions to match the extracted table region coordinates.
-
-    Args:
-        ball_centers (np.ndarray): Ball center coordinates in original image (N, 2)
-        quad (np.ndarray): Quadrilateral points of table (4, 2)
-
-    Returns:
-        np.ndarray: Transformed ball positions in extracted table coordinates (N, 2)
-    """
-    ordered_quad = order_quad(quad)
-    needs_rotation = _check_rotation_needed(ordered_quad)
-
-    out_w, out_h = SHOTSTUDIO_SIZE
-
-    ball_points = np.array(ball_centers, dtype=np.float32)
-
-    if needs_rotation:
-        # Table is landscape in image, needs rotation to portrait
-        # First warp to landscape (1680x840), then rotate to portrait
-        landscape_dst = np.array(
-            [[0, 0], [out_h - 1, 0], [out_h - 1, out_w - 1], [0, out_w - 1]],
-            dtype=np.float32,
-        )
-
-        h_landscape = cv2.getPerspectiveTransform(ordered_quad, landscape_dst)
-
-        # Add 90° CCW rotation: landscape (1680x840) -> portrait (840x1680)
-        rot = np.array([[0, 1, 0], [-1, 0, out_h - 1], [0, 0, 1]], np.float32)
-        h_final = rot @ h_landscape
-    else:
-        # Table is already portrait in image, direct warp
-        portrait_dst = np.array(
-            [[0, 0], [out_w - 1, 0], [out_w - 1, out_h - 1], [0, out_h - 1]],
-            dtype=np.float32,
-        )
-
-        h_final = cv2.getPerspectiveTransform(ordered_quad, portrait_dst)
-
-    # Transform the ball points
-    ball_points_homogeneous = np.ones((len(ball_points), 3), dtype=np.float32)
-    ball_points_homogeneous[:, :2] = ball_points
-
-    # Apply transformation
-    transformed_homogeneous = (h_final @ ball_points_homogeneous.T).T
-
-    # Convert back to 2D coordinates
-    transformed_points = (
-        transformed_homogeneous[:, :2] / transformed_homogeneous[:, 2:3]
-    )
-
-    return transformed_points
 
 
 # ============================================================================
@@ -368,7 +236,7 @@ def draw_ball_overlay_on_image(
     overlay = background_img.copy()
 
     if use_circle_indicators:
-        # Use circle indicators like "Original image with Detections"
+        # Use circle indicators
         for position, cls in zip(ball_positions, ball_classes):
             center = (int(round(position[0])), int(round(position[1])))
             color = BALL_COLORS[int(cls) % len(BALL_COLORS)]
@@ -621,7 +489,7 @@ def compute_baseline_comparison(baseline_data, model_data):
     }
 
 
-def write_results_to_xlsx(results_dict, output_file="detection_results.xlsx"):
+def write_results_to_xlsx(results_dict, output_file="detection_results_transformed.xlsx"):
     """Write detection results to Excel file in wide format with interleaved columns.
 
     Args:
@@ -707,91 +575,51 @@ def write_results_to_xlsx(results_dict, output_file="detection_results.xlsx"):
 # MAIN PROCESSING FUNCTIONS
 # ============================================================================
 
-def process_balls_and_visualize(img, quad, orig_quad_points, orig_img_size, model_path, model_name):
-    """Detect balls, transform coordinates, and create visualizations.
+def process_balls_and_visualize(img, quad, transformed_img, model_path, model_name):
+    """Detect balls on transformed image and create visualizations.
 
     Args:
-        img (np.ndarray): Input image
-        quad (np.ndarray): Table quadrilateral points (4, 2)
-        orig_quad_points (list): Original quad points as list of tuples
-        orig_img_size (tuple): Original image size (width, height)
+        img (np.ndarray): Original input image
+        quad (np.ndarray): Table quadrilateral points (4, 2) from original image
+        transformed_img (np.ndarray): Transformed table image (840x1680)
         model_path (str): Path to the YOLO model weights
         model_name (str): Name of the model being used
 
     Returns:
         dict or None: Detection data with keys 'positions', 'classes', 'confidences', or None if no balls detected
     """
-    # Get ball detections with masking (same as C++ library)
-    ball_centers, ball_classes, ball_confidences = get_balls_from_image(img, model_path, quad=quad)
+    # Get ball detections from transformed image (no masking needed)
+    ball_centers, ball_classes, ball_confidences = get_balls_from_transformed_image(
+        transformed_img, model_path
+    )
 
     if ball_centers is None or len(ball_centers) == 0:
         print("No balls detected")
         return None
 
     print(f"Found {len(ball_centers)} balls")
+    print(f"Ball centers in ShotStudio coordinates: {ball_centers}")
 
-    print(f"Ball centers in full resolution coordinates: {ball_centers}")
-    print(f"Quad points: {orig_quad_points}")
-    print(f"Original image size: {orig_img_size}")
-
-    # Transform ball positions directly to ShotStudio coordinates
-    print(f"Target ShotStudio size: {SHOTSTUDIO_SIZE}")
-
-    transformed_points = transform_points_cpp(
-        ball_centers.tolist(), orig_quad_points, orig_img_size, SHOTSTUDIO_SIZE
-    )
-
-    if not transformed_points:
-        print("C++ coordinate transformation failed")
-        return None
-
-    # Print transformed coordinates
-    transformed_coords = [[pt["x"], pt["y"]] for pt in transformed_points]
-    print(f"Transformed ball positions in ShotStudio coordinates: {transformed_coords}")
-
-    # Draw overlay on original image (circle indicators with quad)
-    temp_img = img.copy()
-    cv2.polylines(temp_img, [quad.astype(int)], True, (0, 255, 0), LINE_THICKNESS)
+    # Draw balls on transformed table image
     draw_ball_overlay_on_image(
         ball_centers,
         ball_classes,
-        temp_img,
-        f"[{model_name.upper()}] Original Image with Detections",
+        transformed_img,
+        f"[{model_name.upper()}] Transformed Table with Ball Detections",
         use_circle_indicators=True,
     )
 
-    # # Extract table region in portrait mode (same size as ShotStudio)
-    # extracted_table = extract_table_region(img, quad)
-
-    # # Transform ball positions for the extracted table region
-    # extracted_ball_positions = transform_balls_for_extracted_table(ball_centers, quad)
-
-    # # Draw balls on extracted table region (circle indicators)
-    # draw_ball_overlay_on_image(
-    #     extracted_ball_positions,
-    #     ball_classes,
-    #     extracted_table,
-    #     f"[{model_name.upper()}] Extracted Table with Ball Detections",
-    #     use_circle_indicators=True,
-    # )
-
-    # # Get prepared ShotStudio background (loaded and cached)
-    # shotstudio_bg = get_shotstudio_background()
-    # if shotstudio_bg is None:
-    #     return {
-    #         'positions': ball_centers,
-    #         'classes': ball_classes,
-    #         'confidences': ball_confidences
-    #     }
-
-    # # Draw balls on ShotStudio background with same positions and style as extracted table
-    # draw_ball_overlay_on_image(
-    #     extracted_ball_positions,
-    #     ball_classes,
-    #     shotstudio_bg,
-    #     f"[{model_name.upper()}] ShotStudio with Ball Detections",
-    #     use_circle_indicators=True,
-    # )
+    # Get prepared ShotStudio background (loaded and cached)
+    shotstudio_bg = get_shotstudio_background()
+    if shotstudio_bg is not None:
+        # Draw balls on ShotStudio background with same positions
+        draw_ball_overlay_on_image(
+            ball_centers,
+            ball_classes,
+            shotstudio_bg,
+            f"[{model_name.upper()}] ShotStudio with Ball Detections",
+            use_circle_indicators=False,
+        )
 
     # Wait for user input to close windows
     if DO_PLOT:
@@ -806,10 +634,10 @@ def process_balls_and_visualize(img, quad, orig_quad_points, orig_img_size, mode
 
 
 def run_detect(img, quad, model_name):
-    """Run ball detection on an image with a specific model.
+    """Run ball detection on a transformed image with a specific model.
 
     Args:
-        img (np.ndarray): Input image
+        img (np.ndarray): Original input image
         quad (np.ndarray): Table quadrilateral points (4, 2)
         model_name (str): Name of the model to use
 
@@ -823,10 +651,15 @@ def run_detect(img, quad, model_name):
         print(f"ShotStudio background not found at: {SHOTSTUDIO_BG_PATH}")
         return None
 
+    # Transform the image first (this is the key difference from detect_table.py)
+    print("Transforming image to ShotStudio coordinates...")
+    transformed_img, H_transform = extract_table_with_transformation(img, quad)
+    print(f"Transformed image size: {transformed_img.shape[1]}x{transformed_img.shape[0]}")
+
     # Process balls and create all visualizations
-    orig_quad_points = [(pt[0], pt[1]) for pt in quad]
-    orig_img_size = (img.shape[1], img.shape[0])
-    detection_data = process_balls_and_visualize(img, quad, orig_quad_points, orig_img_size, model_path, model_name)
+    detection_data = process_balls_and_visualize(
+        img, quad, transformed_img, model_path, model_name
+    )
     return detection_data
 
 
@@ -837,7 +670,7 @@ def run_detect(img, quad, model_name):
 def main():
     """Main entry point for the script."""
     if len(sys.argv) != 2:
-        print("Usage: python detect_table.py <image_directory>")
+        print("Usage: python detect_transformed_table.py <image_directory>")
         sys.exit(1)
 
     image_dir = sys.argv[1]
@@ -850,6 +683,8 @@ def main():
 
     print(f"Found {len(images)} images to process")
     print(f"Models to run: {MODEL_NAMES}")
+    print("\n🔄 PRE-TRANSFORM WORKFLOW: Detecting on transformed images")
+    print("   (Image is warped to ShotStudio coordinates before detection)\n")
 
     # Results dictionary: {image_name: {model_name: {stat_name: value}}}
     results = {}
@@ -885,12 +720,7 @@ def main():
                 results[image_name][model_name] = get_detection_stats(None)
             continue
 
-        # Show quad detection once
-        # visualize_quad_detection(img, quad)
-        # if DO_PLOT:
-        #     cv2.waitKey(0)
-
-        # Run ball detection with each model using the same quad
+        # Run ball detection with each model using the transformed image
         # Store full detection data for each model
         detection_data_by_model = {}
         for model_name in MODEL_NAMES:
@@ -917,7 +747,7 @@ def main():
                 stats.update(comparison_stats)
 
             results[image_name][model_name] = stats
-            
+
     # Write all results to Excel
     write_results_to_xlsx(results)
 

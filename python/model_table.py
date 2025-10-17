@@ -205,7 +205,7 @@ def main():
     )
     args = ap.parse_args()
 
-    MODEL_NAME = "combined3"
+    MODEL_NAME = "pix2pockets_remapped_transformed"
     CONFIG = {
         "srcImgDir": f"data/{MODEL_NAME}/images",
         "srcLblDir": f"data/{MODEL_NAME}/labels",
@@ -217,7 +217,7 @@ def main():
         "trainer": {
             "model": "yolov8n.pt",  # or yolov8s.pt, yolov9c.pt …
             "hyp": "data/hyps/hyp.custom.yaml",  # optional
-            "epochs": 10,
+            "epochs": 30,
             "imgsz": 1280,
             "batch": 4,  # Further reduced batch size for stability
             "device": "mps",
