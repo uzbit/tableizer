@@ -15,6 +15,10 @@ set(LIB_SOURCES
     src/utilities.cpp
     src/base64_utils.cpp
     src/quad_analysis.cpp
+    src/ball_detection.cpp
+    src/ffi_api.cpp
+    src/image_processing.cpp
+    src/json_parser.cpp
 )
 set(APP_SOURCES
     ${LIB_SOURCES}

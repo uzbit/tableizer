@@ -9,6 +9,7 @@ data/
 *.jpg
 *.jpeg
 *.so
+*.xlsx
 app/ios/Podfile.lock
 app/ios/libtableizer_lib*
 

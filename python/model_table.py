@@ -205,9 +205,10 @@ def main():
     )
     args = ap.parse_args()
 
+    MODEL_NAME = "combined2"
     CONFIG = {
-        "srcImgDir": "data/pix2pockets_remapped/images",
-        "srcLblDir": "data/pix2pockets_remapped/labels",
+        "srcImgDir": f"data/{MODEL_NAME}/images",
+        "srcLblDir": f"data/{MODEL_NAME}/labels",
         "dstRoot": "/tmp/workdir",
         "oldToNewMap": {3: 3, 2: 2, 1: 1, 0: 0}, # shotstudio
         #"oldToNewMap": {4: 3, 3: 2, 1: 1, 0: 0},  # pix2pocket → shotstudio, not needed 
@@ -216,13 +217,13 @@ def main():
         "trainer": {
             "model": "yolov8n.pt",  # or yolov8s.pt, yolov9c.pt …
             "hyp": "data/hyps/hyp.custom.yaml",  # optional
-            "epochs": 20,
+            "epochs": 10,
             "imgsz": 1280,
             "batch": 4,  # Further reduced batch size for stability
             "device": "mps",
             "workers": 8,  # Reduced workers to match batch size
             "project": "tableizer",
-            "name": "exp",
+            "name": MODEL_NAME,
             "cache": True,
             "patience": 10,  # Early stopping patience
             "save_period": 5,  # Save checkpoint every 5 epochs

@@ -10,6 +10,7 @@ from pathlib import Path
 
 import cv2
 import numpy as np
+import pandas as pd
 
 from utilities import (
     load_detection_model,
@@ -23,7 +24,7 @@ from tableizer_ffi import detect_table_cpp, transform_points_cpp
 # CONFIGURATION & CONSTANTS
 # ============================================================================
 
-MODEL_PATH = "/Users/uzbit/Documents/projects/tableizer/tableizer/combined/weights/best.pt"
+MODEL_NAMES = ["baseline", "combined", "combined2"]
 SHOTSTUDIO_BG_PATH = "../data/shotstudio_table_felt_only.png"
 
 # Processing parameters
@@ -31,6 +32,9 @@ SHOTSTUDIO_SIZE = (840, 1680)
 
 # Detection parameters
 CONF_THRESHOLD = 0.6
+
+# Visualization parameters
+DO_PLOT = True  # Set to False to disable all plots
 
 # Visualization constants
 CIRCLE_RADIUS = 15
@@ -79,9 +83,7 @@ def detect_table_and_validate(img):
         img (np.ndarray): Input image
 
     Returns:
-        tuple or None: (quad_points, mask) where:
-            - quad_points: numpy.ndarray of shape (4, 2) with quad coordinates
-            - mask: numpy.ndarray (grayscale) or None
+        np.ndarray or None: quad_points - numpy.ndarray of shape (4, 2) with quad coordinates
         Returns None if detection failed
     """
     print("Using C++ table detection...")
@@ -98,13 +100,10 @@ def detect_table_and_validate(img):
 
     # Convert from list format to numpy array - these are in FULL resolution coordinates
     quad = np.array(quad_points_list, dtype=np.float32)
-    mask = detection_result.get("mask", None)
 
     print(f"C++ table detection found quad (full res): {quad}")
-    if mask is not None:
-        print(f"Mask shape: {mask.shape}")
 
-    return quad, mask
+    return quad
 
 
 def extract_table_region(original_img, quad):
@@ -159,25 +158,27 @@ def extract_table_region(original_img, quad):
 # BALL DETECTION FUNCTIONS
 # ============================================================================
 
-def get_balls_from_image(image_input):
-    """Extract ball centers and classes from an image using YOLO detection.
+def get_balls_from_image(image_input, model_path):
+    """Extract ball centers, classes, and confidences from an image using YOLO detection.
 
     Args:
         image_input: Either a file path (str) or image array (np.ndarray)
+        model_path (str): Path to the YOLO model weights
 
     Returns:
-        tuple: (ball_centers, ball_classes) where:
+        tuple: (ball_centers, ball_classes, ball_confidences) where:
             - ball_centers: np.ndarray of shape (N, 2) with ball center coordinates
             - ball_classes: np.ndarray of shape (N,) with ball class IDs
-        Returns (None, None) if no balls detected
+            - ball_confidences: np.ndarray of shape (N,) with detection confidences
+        Returns (None, None, None) if no balls detected
     """
-    model = load_detection_model(MODEL_PATH)
+    model = load_detection_model(model_path)
 
     results = model(image_input)
     boxes = results[0].boxes
 
     if len(boxes) == 0:
-        return None, None
+        return None, None, None
 
     xyxy = boxes.xyxy.cpu().numpy()
     confs = boxes.conf.cpu().numpy()
@@ -187,10 +188,16 @@ def get_balls_from_image(image_input):
     cx, cy = (x1 + x2) / 2, (y1 + y2) / 2
     w, h = x2 - x1, y2 - y1
 
+    print(f"Raw detections before filtering: {len(confs)}")
+    print(f"Confidence values: {confs}")
+    print(f"Confidence threshold: {CONF_THRESHOLD}")
+
     valid_mask = confs >= CONF_THRESHOLD
+    print(f"Detections passing confidence threshold: {valid_mask.sum()}")
 
     if not valid_mask.any():
-        return None, None
+        print("No detections passed confidence threshold!")
+        return None, None, None
 
     dets = np.column_stack(
         [
@@ -213,7 +220,7 @@ def get_balls_from_image(image_input):
 
     if balls.size == 0:
         print("No balls detected.")
-        return None, None
+        return None, None, None
 
     ball_centers = np.array([[b[0], b[1]] for b in balls])
     ball_classes = balls[:, -1]
@@ -222,7 +229,7 @@ def get_balls_from_image(image_input):
     print(f"Ball confidences: {ball_confidences}")
     print(f"Final ball count: {len(ball_centers)}")
 
-    return ball_centers, ball_classes
+    return ball_centers, ball_classes, ball_confidences
 
 
 # ============================================================================
@@ -300,9 +307,8 @@ def visualize_quad_detection(img, quad):
     for p in quad.astype(int):
         cv2.circle(vis, tuple(p), 6, (0, 0, 255), -1)
     print("BL, TL, BR, TR  (pixel coords in full frame):\n", quad)
-    cv2.imshow("Quad via cell extremums", vis)
-    cv2.waitKey(0)
-    cv2.destroyAllWindows()
+    if DO_PLOT:
+        cv2.imshow("Quad via cell extremums", vis)
 
 
 def show_detection_failed(img):
@@ -317,9 +323,8 @@ def show_detection_failed(img):
     cv2.line(vis, (0, 0), (w - 1, h - 1), (0, 0, 255), 2)
     # Draw from bottom-left to top-right
     cv2.line(vis, (0, h - 1), (w - 1, 0), (0, 0, 255), 2)
-    cv2.imshow("Red X", vis)
-    cv2.waitKey(0)
-    cv2.destroyAllWindows()
+    if DO_PLOT:
+        cv2.imshow("Red X", vis)
     print("NO QUAD FOUND!")
 
 
@@ -390,9 +395,8 @@ def draw_ball_overlay_on_image(
                 cv2.LINE_AA,
             )
 
-    cv2.imshow(title, overlay)
-    cv2.waitKey(0)
-    cv2.destroyAllWindows()
+    if DO_PLOT:
+        cv2.imshow(title, overlay)
     return overlay
 
 
@@ -441,52 +445,228 @@ def get_shotstudio_background():
 # LOGGING FUNCTIONS
 # ============================================================================
 
-def log_detection_results(image_path, ball_classes, output_file="detection_results.csv"):
-    """Log detection results to CSV file.
+def get_detection_stats(detection_data):
+    """Calculate detection statistics from detection data.
 
     Args:
-        image_path (str): Path to the image file
-        ball_classes (np.ndarray or None): Array of ball class IDs, or None if no balls detected
-        output_file (str): Output CSV file path
+        detection_data (dict or None): Dictionary with 'classes', 'confidences', 'positions' keys, or None if no balls detected
 
     Returns:
-        bool: True if logging succeeded, False otherwise
+        dict: Dictionary with detection statistics
+    """
+    if detection_data is None:
+        return {
+            'number_balls_detected': 0,
+            'cue_detected': 0,
+            'black_detected': 0,
+            'num_solids': 0,
+            'num_stripes': 0,
+            'num_object_balls': 0,
+        }
+
+    ball_classes = detection_data['classes']
+    ball_confidences = detection_data['confidences']
+
+    # Count total balls
+    num_balls = len(ball_classes)
+
+    # Initialize counts
+    cue_detected = 0
+    black_detected = 0
+    num_solids = 0
+    num_stripes = 0
+    num_object_balls = 0
+
+    # Class 0 is black ball, Class 1 is cue ball
+    # Class 2 is solid, Class 3 is stripe
+    black_detected = 1 if 0 in ball_classes else 0
+    cue_detected = 1 if 1 in ball_classes else 0
+    num_solids = int(np.sum(ball_classes == 2))
+    num_stripes = int(np.sum(ball_classes == 3))
+    num_object_balls = num_solids + num_stripes
+
+    return {
+        'number_balls_detected': num_balls,
+        'cue_detected': cue_detected,
+        'black_detected': black_detected,
+        'num_solids': num_solids,
+        'num_stripes': num_stripes,
+        'num_object_balls': num_object_balls,
+    }
+
+
+def compute_baseline_comparison(baseline_data, model_data):
+    """Compute comparison metrics between baseline and another model's detections.
+
+    Args:
+        baseline_data (dict or None): Baseline detection data with 'positions', 'classes', 'confidences'
+        model_data (dict or None): Model detection data with 'positions', 'classes', 'confidences'
+
+    Returns:
+        dict: Dictionary with comparison statistics vs baseline
+    """
+    # Handle cases where one or both models have no detections
+    if baseline_data is None and model_data is None:
+        return {
+            'vs_baseline_ball_count_diff': 0,
+            'vs_baseline_solid_diff': 0,
+            'vs_baseline_stripe_diff': 0,
+            'vs_baseline_cue_agreement': 1,
+            'vs_baseline_black_agreement': 1,
+            'vs_baseline_total_count_agreement': 1,
+            'vs_baseline_position_overlap': 0,
+            'vs_baseline_unique_detections': 0,
+        }
+
+    # Extract baseline stats
+    baseline_classes = baseline_data['classes'] if baseline_data else np.array([])
+    baseline_positions = baseline_data['positions'] if baseline_data else np.array([])
+
+    baseline_count = len(baseline_classes)
+    baseline_cue = 1 if 1 in baseline_classes else 0
+    baseline_black = 1 if 0 in baseline_classes else 0
+    baseline_solids = int(np.sum(baseline_classes == 2))
+    baseline_stripes = int(np.sum(baseline_classes == 3))
+
+    # Extract model stats
+    model_classes = model_data['classes'] if model_data else np.array([])
+    model_positions = model_data['positions'] if model_data else np.array([])
+
+    model_count = len(model_classes)
+    model_cue = 1 if 1 in model_classes else 0
+    model_black = 1 if 0 in model_classes else 0
+    model_solids = int(np.sum(model_classes == 2))
+    model_stripes = int(np.sum(model_classes == 3))
+
+    # Compute count differences
+    ball_count_diff = model_count - baseline_count
+    solid_diff = model_solids - baseline_solids
+    stripe_diff = model_stripes - baseline_stripes
+
+    # Compute agreements (1 if both agree, 0 if they disagree)
+    cue_agreement = 1 if model_cue == baseline_cue else 0
+    black_agreement = 1 if model_black == baseline_black else 0
+    total_count_agreement = 1 if model_count == baseline_count else 0
+
+    # Compute positional overlap (count balls within 50px threshold)
+    position_overlap = 0
+    unique_detections = model_count
+
+    if baseline_count > 0 and model_count > 0:
+        # For each model detection, find closest baseline detection
+        matched_baseline_indices = set()
+        matched_model_count = 0
+
+        for i, model_pos in enumerate(model_positions):
+            min_dist = float('inf')
+            closest_baseline_idx = -1
+
+            for j, baseline_pos in enumerate(baseline_positions):
+                dist = np.linalg.norm(model_pos - baseline_pos)
+                if dist < min_dist:
+                    min_dist = dist
+                    closest_baseline_idx = j
+
+            # If within threshold (50 pixels) and same class, count as overlap
+            if min_dist < 50 and closest_baseline_idx >= 0:
+                if model_classes[i] == baseline_classes[closest_baseline_idx]:
+                    position_overlap += 1
+                    matched_baseline_indices.add(closest_baseline_idx)
+                    matched_model_count += 1
+
+        unique_detections = model_count - matched_model_count
+
+    return {
+        'vs_baseline_ball_count_diff': ball_count_diff,
+        'vs_baseline_solid_diff': solid_diff,
+        'vs_baseline_stripe_diff': stripe_diff,
+        'vs_baseline_cue_agreement': cue_agreement,
+        'vs_baseline_black_agreement': black_agreement,
+        'vs_baseline_total_count_agreement': total_count_agreement,
+        'vs_baseline_position_overlap': position_overlap,
+        'vs_baseline_unique_detections': unique_detections,
+    }
+
+
+def write_results_to_xlsx(results_dict, output_file="detection_results.xlsx"):
+    """Write detection results to Excel file in wide format with interleaved columns.
+
+    Args:
+        results_dict (dict): Dictionary with structure {image_name: {model_name: {stat_name: value}}}
+        output_file (str): Output Excel file path
+
+    Returns:
+        bool: True if writing succeeded, False otherwise
     """
     try:
-        # Get just the image filename
-        image_name = Path(image_path).name
+        # Build list of rows
+        rows = []
+        for image_name, model_results in results_dict.items():
+            row = {'image_name': image_name}
+            for model_name, stats in model_results.items():
+                for stat_name, value in stats.items():
+                    row[f'{model_name}_{stat_name}'] = value
+            rows.append(row)
 
-        # Count total balls
-        num_balls = len(ball_classes) if ball_classes is not None else 0
+        # Create DataFrame
+        df = pd.DataFrame(rows)
 
-        # Check for specific ball types (class 0 = black, class 1 = cue)
-        cue_detected = False
-        black_detected = False
+        # Collect all unique stat names across all models
+        all_stat_names = set()
+        first_image = next(iter(results_dict.values()))
+        for model_name in MODEL_NAMES:
+            if model_name in first_image:
+                all_stat_names.update(first_image[model_name].keys())
 
-        if ball_classes is not None and len(ball_classes) > 0:
-            # Class 0 is black ball, Class 1 is cue ball
-            black_detected = 0 in ball_classes
-            cue_detected = 1 in ball_classes
+        # Only use base stats, exclude comparison stats
+        base_stats = [s for s in all_stat_names if not s.startswith('vs_baseline_')]
 
-        # Check if file exists to determine if we need to write header
-        file_exists = os.path.exists(output_file)
+        # Build column order: image_name, then for each base stat show all models
+        ordered_cols = ['image_name']
 
-        # Write to CSV
-        with open(output_file, 'a', newline='') as f:
-            writer = csv.writer(f)
+        # Add base stats columns (all models)
+        for stat_name in sorted(base_stats):
+            for model_name in MODEL_NAMES:
+                col_name = f'{model_name}_{stat_name}'
+                if col_name in df.columns:
+                    ordered_cols.append(col_name)
 
-            # Write header if file is new
-            if not file_exists:
-                writer.writerow(['image_name', 'number_balls_detected', 'cue_detected', 'black_detected'])
+        # Reorder columns
+        df = df[ordered_cols]
 
-            # Write data row
-            writer.writerow([image_name, num_balls, cue_detected, black_detected])
+        # Calculate averages for all numeric columns
+        avg_row = {'image_name': 'AVERAGE'}
+        for col in ordered_cols:
+            if col != 'image_name':
+                avg_row[col] = df[col].mean()
 
-        print(f"Logged: {image_name} - {num_balls} balls (cue: {cue_detected}, black: {black_detected})")
+        # Calculate differences from baseline for base stats
+        diff_row = {'image_name': 'DIFF FROM BASELINE'}
+        for stat_name in sorted(base_stats):
+            baseline_col = f'baseline_{stat_name}'
+            if baseline_col in df.columns:
+                baseline_avg = df[baseline_col].mean()
+                for model_name in MODEL_NAMES:
+                    if model_name != 'baseline':
+                        model_col = f'{model_name}_{stat_name}'
+                        if model_col in df.columns:
+                            model_avg = df[model_col].mean()
+                            diff_row[model_col] = model_avg - baseline_avg
+                        else:
+                            diff_row[model_col] = 0
+                # Set baseline diff to 0
+                diff_row[baseline_col] = 0
+
+        # Append summary rows
+        df = pd.concat([df, pd.DataFrame([avg_row, diff_row])], ignore_index=True)
+
+        df.to_excel(output_file, index=False)
+
+        print(f"Results written to {output_file}")
         return True
 
     except Exception as e:
-        print(f"Error logging detection results: {e}")
+        print(f"Error writing results to Excel: {e}")
         return False
 
 
@@ -494,20 +674,21 @@ def log_detection_results(image_path, ball_classes, output_file="detection_resul
 # MAIN PROCESSING FUNCTIONS
 # ============================================================================
 
-def process_balls_and_visualize(img, quad, orig_quad_points, orig_img_size):
+def process_balls_and_visualize(img, quad, orig_quad_points, orig_img_size, model_path):
     """Detect balls, transform coordinates, and create visualizations.
 
     Args:
-        img (np.ndarray): Input image (potentially masked)
+        img (np.ndarray): Input image
         quad (np.ndarray): Table quadrilateral points (4, 2)
         orig_quad_points (list): Original quad points as list of tuples
         orig_img_size (tuple): Original image size (width, height)
+        model_path (str): Path to the YOLO model weights
 
     Returns:
-        np.ndarray or None: Ball class IDs array, or None if no balls detected
+        dict or None: Detection data with keys 'positions', 'classes', 'confidences', or None if no balls detected
     """
     # Get ball detections and transform directly to ShotStudio coordinates
-    ball_centers, ball_classes = get_balls_from_image(img)
+    ball_centers, ball_classes, ball_confidences = get_balls_from_image(img, model_path)
 
     if ball_centers is None or len(ball_centers) == 0:
         print("No balls detected")
@@ -563,7 +744,11 @@ def process_balls_and_visualize(img, quad, orig_quad_points, orig_img_size):
     # Get prepared ShotStudio background (loaded and cached)
     shotstudio_bg = get_shotstudio_background()
     if shotstudio_bg is None:
-        return ball_classes
+        return {
+            'positions': ball_centers,
+            'classes': ball_classes,
+            'confidences': ball_confidences
+        }
 
     # Draw balls on ShotStudio background with same positions and style as extracted table
     draw_ball_overlay_on_image(
@@ -574,62 +759,49 @@ def process_balls_and_visualize(img, quad, orig_quad_points, orig_img_size):
         use_circle_indicators=True,
     )
 
-    return ball_classes
+    # Wait for user input to close windows
+    if DO_PLOT:
+        cv2.waitKey(0)
+
+    # Return full detection data
+    return {
+        'positions': ball_centers,
+        'classes': ball_classes,
+        'confidences': ball_confidences
+    }
 
 
-def run_detect(image_path):
-    """Run complete detection pipeline on a single image.
+def run_detect(img, quad, model_name):
+    """Run ball detection on an image with a specific model.
 
     Args:
-        image_path (str): Path to input image file
+        img (np.ndarray): Input image
+        quad (np.ndarray): Table quadrilateral points (4, 2)
+        model_name (str): Name of the model to use
+
+    Returns:
+        dict or None: Detection data with keys 'positions', 'classes', 'confidences', or None if detection failed
     """
-    print("-" * 100)
-    print(f"Detecting for {image_path}...")
+    print("\n" + "=" * 100)
+    print("=" * 100)
+    print(f"{'':^100}")
+    print(f"MODEL: {model_name.upper()}".center(100))
+    print(f"{'':^100}")
+    print("=" * 100)
+    print("=" * 100 + "\n")
 
-    img = cv2.imread(image_path)
-    if img is None:
-        print(f"ERROR: Could not load image: {image_path}")
-        log_detection_results(image_path, None)
-        print("-" * 100)
-        return
+    model_path = f"/Users/uzbit/Documents/projects/tableizer/tableizer/{model_name}/weights/best.pt"
 
-    # Detect table quadrilateral and mask
-    detection_result = detect_table_and_validate(img)
+    # Check if ShotStudio background exists before processing
+    if not os.path.exists(SHOTSTUDIO_BG_PATH):
+        print(f"ShotStudio background not found at: {SHOTSTUDIO_BG_PATH}")
+        return None
 
-    if detection_result is not None:
-        quad, mask = detection_result
-
-        # Show quad detection
-        visualize_quad_detection(img, quad)
-
-        # Apply mask to image before ball detection if mask is available
-        if mask is not None:
-            # Resize mask to match original image dimensions
-            mask_resized = cv2.resize(mask, (img.shape[1], img.shape[0]))
-            # Apply mask - zero out non-table regions
-            masked_img = cv2.bitwise_and(img, img, mask=mask_resized)
-            print("Applied table mask to image for ball detection")
-        else:
-            masked_img = img
-            print("No mask available, using original image for ball detection")
-
-        # Check if ShotStudio background exists before processing
-        if not os.path.exists(SHOTSTUDIO_BG_PATH):
-            print(f"ShotStudio background not found at: {SHOTSTUDIO_BG_PATH}")
-            log_detection_results(image_path, None)
-            print("-" * 100)
-            return
-
-        # Process balls and create all visualizations using masked image for detection
-        orig_quad_points = [(pt[0], pt[1]) for pt in quad]
-        orig_img_size = (img.shape[1], img.shape[0])
-        ball_classes = process_balls_and_visualize(masked_img, quad, orig_quad_points, orig_img_size)
-        log_detection_results(image_path, ball_classes)
-    else:
-        show_detection_failed(img)
-        log_detection_results(image_path, None)
-
-    print("-" * 100)
+    # Process balls and create all visualizations
+    orig_quad_points = [(pt[0], pt[1]) for pt in quad]
+    orig_img_size = (img.shape[1], img.shape[0])
+    detection_data = process_balls_and_visualize(img, quad, orig_quad_points, orig_img_size, model_path)
+    return detection_data
 
 
 # ============================================================================
@@ -651,8 +823,74 @@ def main():
         sys.exit(1)
 
     print(f"Found {len(images)} images to process")
+    print(f"Models to run: {MODEL_NAMES}")
+
+    # Results dictionary: {image_name: {model_name: {stat_name: value}}}
+    results = {}
+
+    # Process each image with each model
     for image_path in images:
-        run_detect(image_path)
+        image_name = Path(image_path).name
+        print("=" * 100)
+        print(f"Processing image: {image_name}")
+        print("=" * 100)
+
+        # Load image
+        img = cv2.imread(image_path)
+        if img is None:
+            print(f"ERROR: Could not load image: {image_path}")
+            # Store None results for all models
+            results[image_name] = {}
+            for model_name in MODEL_NAMES:
+                results[image_name][model_name] = get_detection_stats(None)
+            continue
+
+        # Detect table quadrilateral (ONCE per image)
+        quad = detect_table_and_validate(img)
+
+        if quad is None:
+            print("Table detection failed!")
+            show_detection_failed(img)
+            if DO_PLOT:
+                cv2.waitKey(0)
+            # Store None results for all models
+            results[image_name] = {}
+            for model_name in MODEL_NAMES:
+                results[image_name][model_name] = get_detection_stats(None)
+            continue
+
+        # Show quad detection once
+        visualize_quad_detection(img, quad)
+        if DO_PLOT:
+            cv2.waitKey(0)
+
+        # Run ball detection with each model using the same quad
+        # Store full detection data for each model
+        detection_data_by_model = {}
+        for model_name in MODEL_NAMES:
+            detection_data = run_detect(img, quad, model_name)
+            detection_data_by_model[model_name] = detection_data
+            stats = get_detection_stats(detection_data)
+            print(f"[{model_name}] {image_name}: {stats}")
+
+        # Compute baseline comparisons and merge with base stats
+        results[image_name] = {}
+        baseline_data = detection_data_by_model.get('baseline')
+
+        for model_name in MODEL_NAMES:
+            model_data = detection_data_by_model[model_name]
+            stats = get_detection_stats(model_data)
+
+            # If not baseline, add comparison metrics
+            if model_name != 'baseline':
+                comparison_stats = compute_baseline_comparison(baseline_data, model_data)
+                # Merge base stats and comparison stats
+                stats.update(comparison_stats)
+
+            results[image_name][model_name] = stats
+
+    # Write all results to Excel
+    write_results_to_xlsx(results)
 
 
 if __name__ == "__main__":
