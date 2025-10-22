@@ -69,8 +69,15 @@ class DataSplitter:
         (self.dstRoot / f"images/{subset}").mkdir(parents=True, exist_ok=True)
         (self.dstRoot / f"labels/{subset}").mkdir(parents=True, exist_ok=True)
         for s in stems:
+            # After LabelRemapper, all images should be .jpg
+            img_file = self.allImgDir / f"{s}.jpg"
+
+            if not img_file.exists():
+                print(f"Warning: No image file found for {s}.jpg")
+                continue
+
             shutil.move(
-                str(self.allImgDir / f"{s}.jpg"),
+                str(img_file),
                 self.dstRoot / f"images/{subset}/{s}.jpg",
             )
             shutil.move(
@@ -205,19 +212,19 @@ def main():
     )
     args = ap.parse_args()
 
-    MODEL_NAME = "pix2pockets_remapped_transformed"
+    MODEL_NAME = "combined4"
     CONFIG = {
         "srcImgDir": f"data/{MODEL_NAME}/images",
         "srcLblDir": f"data/{MODEL_NAME}/labels",
         "dstRoot": "/tmp/workdir",
-        "oldToNewMap": {3: 3, 2: 2, 1: 1, 0: 0}, # shotstudio
-        #"oldToNewMap": {4: 3, 3: 2, 1: 1, 0: 0},  # pix2pocket → shotstudio, not needed 
+        "oldToNewMap": {3: 3, 2: 2, 1: 1, 0: 0},  # shotstudio
+        # "oldToNewMap": {4: 3, 3: 2, 1: 1, 0: 0},  # pix2pocket → shotstudio, not needed
         "classNames": ["black", "cue", "solid", "stripe"],  # id 0→black …
         "split": [0.8, 0.10, 0.10],
         "trainer": {
             "model": "yolov8n.pt",  # or yolov8s.pt, yolov9c.pt …
             "hyp": "data/hyps/hyp.custom.yaml",  # optional
-            "epochs": 30,
+            "epochs": 40,
             "imgsz": 1280,
             "batch": 4,  # Further reduced batch size for stability
             "device": "mps",
@@ -229,14 +236,6 @@ def main():
             "save_period": 5,  # Save checkpoint every 5 epochs
         },
     }
-    # ---------- default config ----------
-    if args.use_transformed:
-        # Use transformed dataset
-        CONFIG["srcImgDir"] = "data/pix2pockets_transformed/images"
-        CONFIG["srcLblDir"] = "data/pix2pockets_transformed/labels"
-        # Labels are already remapped in transformed dataset
-        CONFIG["oldToNewMap"] = ({0: 0, 1: 1, 2: 2, 3: 3},)
-
     # ---------- override ----------
     if args.config:
         CONFIG.update(json.loads(Path(args.config).read_text()))

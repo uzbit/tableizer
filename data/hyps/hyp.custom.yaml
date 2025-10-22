@@ -21,18 +21,18 @@ cache: 'disk'
 box: 0.1 # box loss gain
 cls: 0.5 # cls loss gain
 dfl: 1.5 # dfl loss gain
-kobj: 0.5 # obj loss gain (scale with pixels)
+kobj: 1.1 # obj loss gain (scale with pixels)
 conf: 0.4 # validation confidence threshold (higher than training)
-iou: 0.7 # IoU training threshold
-degrees: 0.0 # image rotation (+/- deg)
-translate: 0.02 # image translation (+/- fraction)
-scale: 0.15 # image scale (+/- gain)
-shear: 0.0 # image shear (+/- deg)
-perspective: 0.0 # image perspective (+/- fraction), range 0-0.001
-flipud: 0.0 # image flip up-down (probability)
-fliplr: 0.0 # image flip left-right (probability)
-mosaic: 0.3 # image mosaic (probability)
+iou: 0.8 # IoU training threshold
+degrees: 5.0 # image rotation (+/- deg)
+translate: 0.1 # image translation (+/- fraction)
+scale: 0.25 # image scale (+/- gain)
+shear: 2.0 # image shear (+/- deg)
+perspective: 0.001 # image perspective (+/- fraction), range 0-0.001
+flipud: 0.1 # image flip up-down (probability)
+fliplr: 0.5 # image flip left-right (probability)
+mosaic: 0.45 # image mosaic (probability)
 mixup: 0.0 # image mixup (probability)
 copy_paste: 0.0 # segment copy-paste (probability)
 max_det: 20 # maximum number of detections
-close_mosaic: 10 # disable mosaic in final epochs
+close_mosaic: 20 # disable mosaic in final epochs

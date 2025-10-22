@@ -388,6 +388,16 @@ class LabelRemapper:
         os.makedirs(self.dst_img_dir, exist_ok=True)
         os.makedirs(self.dst_lbl_dir, exist_ok=True)
 
+    def _compute_hash(self, file_path):
+        """Compute SHA256 hash of a file and return a filesystem-safe filename."""
+        import hashlib
+
+        with open(file_path, "rb") as f:
+            file_hash = hashlib.sha256(f.read()).hexdigest()
+
+        # Use first 16 characters of hash for shorter filenames
+        return file_hash[:16]
+
     def _remap_file(self, lbl_path, img_path):
         """Remap labels in a single file."""
         out_lines = []
@@ -414,14 +424,31 @@ class LabelRemapper:
         if not out_lines:
             return False  # skip images with no target objects
 
-        # Copy image and save remapped labels
+        # Copy image and save remapped labels with hash-based names
         import shutil
 
-        shutil.copy2(
-            img_path, os.path.join(self.dst_img_dir, os.path.basename(img_path))
-        )
+        # Generate hash-based filename
+        img_hash = self._compute_hash(img_path)
+        img_ext = os.path.splitext(img_path)[1].lower()  # Normalize to lowercase
+        # Always use .jpg for consistency with YOLO expectations
+        if img_ext in ['.jpeg', '.png', '.jpg']:
+            new_img_ext = '.jpg'
+        else:
+            new_img_ext = img_ext  # Keep original if unknown format
 
-        with open(os.path.join(self.dst_lbl_dir, os.path.basename(lbl_path)), "w") as f:
+        new_img_name = f"{img_hash}{new_img_ext}"
+        new_lbl_name = f"{img_hash}.txt"
+
+        # Read and write image to ensure it's saved as .jpg if needed
+        import cv2
+        img = cv2.imread(img_path)
+        if img is not None:
+            cv2.imwrite(os.path.join(self.dst_img_dir, new_img_name), img)
+        else:
+            # Fallback to copy if cv2 can't read it
+            shutil.copy2(img_path, os.path.join(self.dst_img_dir, new_img_name))
+
+        with open(os.path.join(self.dst_lbl_dir, new_lbl_name), "w") as f:
             f.write("\n".join(out_lines) + "\n")
 
         return True

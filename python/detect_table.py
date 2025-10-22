@@ -24,7 +24,7 @@ from tableizer_ffi import detect_table_cpp, transform_points_cpp
 # CONFIGURATION & CONSTANTS
 # ============================================================================
 
-MODEL_NAMES = ["baseline", "combined", "combined2", "combined3", "pix2pockets_remapped_transformed"]
+MODEL_NAMES = ["baseline", "combined3", "combined4"]
 SHOTSTUDIO_BG_PATH = "../data/shotstudio_table_felt_only.png"
 
 # Processing parameters
@@ -44,10 +44,10 @@ ROTATION_THRESHOLD_RATIO = 1.75
 
 # Ball colors (BGR format) - ordered by class: ["black", "cue", "solid", "stripe"]
 BALL_COLORS = [
-    (0, 0, 0),          # Class 0: Black
-    (255, 255, 255),    # Class 1: Cue (White)
-    (0, 0, 255),        # Class 2: Solid (Red)
-    (0, 255, 255),      # Class 3: Stripe (Yellow)
+    (0, 0, 0),  # Class 0: Black
+    (255, 255, 255),  # Class 1: Cue (White)
+    (0, 0, 255),  # Class 2: Solid (Red)
+    (0, 255, 255),  # Class 3: Stripe (Yellow)
 ]
 
 # Global ShotStudio background (loaded once)
@@ -57,6 +57,7 @@ _SHOTSTUDIO_BG = None
 # ============================================================================
 # HELPER FUNCTIONS
 # ============================================================================
+
 
 def _check_rotation_needed(ordered_quad):
     """Check if table needs rotation from landscape to portrait.
@@ -75,6 +76,7 @@ def _check_rotation_needed(ordered_quad):
 # ============================================================================
 # TABLE DETECTION FUNCTIONS
 # ============================================================================
+
 
 def detect_table_and_validate(img):
     """Detect table quadrilateral and validate results.
@@ -157,6 +159,7 @@ def extract_table_region(original_img, quad):
 # ============================================================================
 # BALL DETECTION FUNCTIONS
 # ============================================================================
+
 
 def get_balls_from_image(image_input, model_path, quad=None):
     """Extract ball centers, classes, and confidences from an image using YOLO detection.
@@ -254,6 +257,7 @@ def get_balls_from_image(image_input, model_path, quad=None):
 # TRANSFORMATION FUNCTIONS
 # ============================================================================
 
+
 def transform_balls_for_extracted_table(ball_centers, quad):
     """Transform ball positions to match the extracted table region coordinates.
 
@@ -311,6 +315,7 @@ def transform_balls_for_extracted_table(ball_centers, quad):
 # ============================================================================
 # VISUALIZATION FUNCTIONS
 # ============================================================================
+
 
 def visualize_quad_detection(img, quad):
     """Show table quad detection on original image.
@@ -422,6 +427,7 @@ def draw_ball_overlay_on_image(
 # SHOTSTUDIO BACKGROUND MANAGEMENT
 # ============================================================================
 
+
 def get_shotstudio_background():
     """Load and prepare ShotStudio background image (cached).
 
@@ -463,6 +469,7 @@ def get_shotstudio_background():
 # LOGGING FUNCTIONS
 # ============================================================================
 
+
 def print_model_banner(model_name):
     """Print a completion banner for a model.
 
@@ -489,16 +496,16 @@ def get_detection_stats(detection_data):
     """
     if detection_data is None:
         return {
-            'number_balls_detected': 0,
-            'cue_detected': 0,
-            'black_detected': 0,
-            'num_solids': 0,
-            'num_stripes': 0,
-            'num_object_balls': 0,
+            "number_balls_detected": 0,
+            "cue_detected": 0,
+            "black_detected": 0,
+            "num_solids": 0,
+            "num_stripes": 0,
+            "num_object_balls": 0,
         }
 
-    ball_classes = detection_data['classes']
-    ball_confidences = detection_data['confidences']
+    ball_classes = detection_data["classes"]
+    ball_confidences = detection_data["confidences"]
 
     # Count total balls
     num_balls = len(ball_classes)
@@ -519,12 +526,12 @@ def get_detection_stats(detection_data):
     num_object_balls = num_solids + num_stripes
 
     return {
-        'number_balls_detected': num_balls,
-        'cue_detected': cue_detected,
-        'black_detected': black_detected,
-        'num_solids': num_solids,
-        'num_stripes': num_stripes,
-        'num_object_balls': num_object_balls,
+        "number_balls_detected": num_balls,
+        "cue_detected": cue_detected,
+        "black_detected": black_detected,
+        "num_solids": num_solids,
+        "num_stripes": num_stripes,
+        "num_object_balls": num_object_balls,
     }
 
 
@@ -541,19 +548,19 @@ def compute_baseline_comparison(baseline_data, model_data):
     # Handle cases where one or both models have no detections
     if baseline_data is None and model_data is None:
         return {
-            'vs_baseline_ball_count_diff': 0,
-            'vs_baseline_solid_diff': 0,
-            'vs_baseline_stripe_diff': 0,
-            'vs_baseline_cue_agreement': 1,
-            'vs_baseline_black_agreement': 1,
-            'vs_baseline_total_count_agreement': 1,
-            'vs_baseline_position_overlap': 0,
-            'vs_baseline_unique_detections': 0,
+            "vs_baseline_ball_count_diff": 0,
+            "vs_baseline_solid_diff": 0,
+            "vs_baseline_stripe_diff": 0,
+            "vs_baseline_cue_agreement": 1,
+            "vs_baseline_black_agreement": 1,
+            "vs_baseline_total_count_agreement": 1,
+            "vs_baseline_position_overlap": 0,
+            "vs_baseline_unique_detections": 0,
         }
 
     # Extract baseline stats
-    baseline_classes = baseline_data['classes'] if baseline_data else np.array([])
-    baseline_positions = baseline_data['positions'] if baseline_data else np.array([])
+    baseline_classes = baseline_data["classes"] if baseline_data else np.array([])
+    baseline_positions = baseline_data["positions"] if baseline_data else np.array([])
 
     baseline_count = len(baseline_classes)
     baseline_cue = 1 if 1 in baseline_classes else 0
@@ -562,8 +569,8 @@ def compute_baseline_comparison(baseline_data, model_data):
     baseline_stripes = int(np.sum(baseline_classes == 3))
 
     # Extract model stats
-    model_classes = model_data['classes'] if model_data else np.array([])
-    model_positions = model_data['positions'] if model_data else np.array([])
+    model_classes = model_data["classes"] if model_data else np.array([])
+    model_positions = model_data["positions"] if model_data else np.array([])
 
     model_count = len(model_classes)
     model_cue = 1 if 1 in model_classes else 0
@@ -591,7 +598,7 @@ def compute_baseline_comparison(baseline_data, model_data):
         matched_model_count = 0
 
         for i, model_pos in enumerate(model_positions):
-            min_dist = float('inf')
+            min_dist = float("inf")
             closest_baseline_idx = -1
 
             for j, baseline_pos in enumerate(baseline_positions):
@@ -610,14 +617,14 @@ def compute_baseline_comparison(baseline_data, model_data):
         unique_detections = model_count - matched_model_count
 
     return {
-        'vs_baseline_ball_count_diff': ball_count_diff,
-        'vs_baseline_solid_diff': solid_diff,
-        'vs_baseline_stripe_diff': stripe_diff,
-        'vs_baseline_cue_agreement': cue_agreement,
-        'vs_baseline_black_agreement': black_agreement,
-        'vs_baseline_total_count_agreement': total_count_agreement,
-        'vs_baseline_position_overlap': position_overlap,
-        'vs_baseline_unique_detections': unique_detections,
+        "vs_baseline_ball_count_diff": ball_count_diff,
+        "vs_baseline_solid_diff": solid_diff,
+        "vs_baseline_stripe_diff": stripe_diff,
+        "vs_baseline_cue_agreement": cue_agreement,
+        "vs_baseline_black_agreement": black_agreement,
+        "vs_baseline_total_count_agreement": total_count_agreement,
+        "vs_baseline_position_overlap": position_overlap,
+        "vs_baseline_unique_detections": unique_detections,
     }
 
 
@@ -635,10 +642,10 @@ def write_results_to_xlsx(results_dict, output_file="detection_results.xlsx"):
         # Build list of rows
         rows = []
         for image_name, model_results in results_dict.items():
-            row = {'image_name': image_name}
+            row = {"image_name": image_name}
             for model_name, stats in model_results.items():
                 for stat_name, value in stats.items():
-                    row[f'{model_name}_{stat_name}'] = value
+                    row[f"{model_name}_{stat_name}"] = value
             rows.append(row)
 
         # Create DataFrame
@@ -652,15 +659,15 @@ def write_results_to_xlsx(results_dict, output_file="detection_results.xlsx"):
                 all_stat_names.update(first_image[model_name].keys())
 
         # Only use base stats, exclude comparison stats
-        base_stats = [s for s in all_stat_names if not s.startswith('vs_baseline_')]
+        base_stats = [s for s in all_stat_names if not s.startswith("vs_baseline_")]
 
         # Build column order: image_name, then for each base stat show all models
-        ordered_cols = ['image_name']
+        ordered_cols = ["image_name"]
 
         # Add base stats columns (all models)
         for stat_name in sorted(base_stats):
             for model_name in MODEL_NAMES:
-                col_name = f'{model_name}_{stat_name}'
+                col_name = f"{model_name}_{stat_name}"
                 if col_name in df.columns:
                     ordered_cols.append(col_name)
 
@@ -668,20 +675,20 @@ def write_results_to_xlsx(results_dict, output_file="detection_results.xlsx"):
         df = df[ordered_cols]
 
         # Calculate averages for all numeric columns
-        avg_row = {'image_name': 'AVERAGE'}
+        avg_row = {"image_name": "AVERAGE"}
         for col in ordered_cols:
-            if col != 'image_name':
+            if col != "image_name":
                 avg_row[col] = df[col].mean()
 
         # Calculate differences from baseline for base stats
-        diff_row = {'image_name': 'DIFF FROM BASELINE'}
+        diff_row = {"image_name": "DIFF FROM BASELINE"}
         for stat_name in sorted(base_stats):
-            baseline_col = f'baseline_{stat_name}'
+            baseline_col = f"baseline_{stat_name}"
             if baseline_col in df.columns:
                 baseline_avg = df[baseline_col].mean()
                 for model_name in MODEL_NAMES:
-                    if model_name != 'baseline':
-                        model_col = f'{model_name}_{stat_name}'
+                    if model_name != "baseline":
+                        model_col = f"{model_name}_{stat_name}"
                         if model_col in df.columns:
                             model_avg = df[model_col].mean()
                             diff_row[model_col] = model_avg - baseline_avg
@@ -707,7 +714,10 @@ def write_results_to_xlsx(results_dict, output_file="detection_results.xlsx"):
 # MAIN PROCESSING FUNCTIONS
 # ============================================================================
 
-def process_balls_and_visualize(img, quad, orig_quad_points, orig_img_size, model_path, model_name):
+
+def process_balls_and_visualize(
+    img, quad, orig_quad_points, orig_img_size, model_path, model_name
+):
     """Detect balls, transform coordinates, and create visualizations.
 
     Args:
@@ -722,7 +732,9 @@ def process_balls_and_visualize(img, quad, orig_quad_points, orig_img_size, mode
         dict or None: Detection data with keys 'positions', 'classes', 'confidences', or None if no balls detected
     """
     # Get ball detections with masking (same as C++ library)
-    ball_centers, ball_classes, ball_confidences = get_balls_from_image(img, model_path, quad=quad)
+    ball_centers, ball_classes, ball_confidences = get_balls_from_image(
+        img, model_path, quad=quad
+    )
 
     if ball_centers is None or len(ball_centers) == 0:
         print("No balls detected")
@@ -799,9 +811,9 @@ def process_balls_and_visualize(img, quad, orig_quad_points, orig_img_size, mode
 
     # Return full detection data
     return {
-        'positions': ball_centers,
-        'classes': ball_classes,
-        'confidences': ball_confidences
+        "positions": ball_centers,
+        "classes": ball_classes,
+        "confidences": ball_confidences,
     }
 
 
@@ -826,13 +838,16 @@ def run_detect(img, quad, model_name):
     # Process balls and create all visualizations
     orig_quad_points = [(pt[0], pt[1]) for pt in quad]
     orig_img_size = (img.shape[1], img.shape[0])
-    detection_data = process_balls_and_visualize(img, quad, orig_quad_points, orig_img_size, model_path, model_name)
+    detection_data = process_balls_and_visualize(
+        img, quad, orig_quad_points, orig_img_size, model_path, model_name
+    )
     return detection_data
 
 
 # ============================================================================
 # ENTRY POINT
 # ============================================================================
+
 
 def main():
     """Main entry point for the script."""
@@ -904,20 +919,22 @@ def main():
 
         # Compute baseline comparisons and merge with base stats
         results[image_name] = {}
-        baseline_data = detection_data_by_model.get('baseline')
+        baseline_data = detection_data_by_model.get("baseline")
 
         for model_name in MODEL_NAMES:
             model_data = detection_data_by_model[model_name]
             stats = get_detection_stats(model_data)
 
             # If not baseline, add comparison metrics
-            if model_name != 'baseline':
-                comparison_stats = compute_baseline_comparison(baseline_data, model_data)
+            if model_name != "baseline":
+                comparison_stats = compute_baseline_comparison(
+                    baseline_data, model_data
+                )
                 # Merge base stats and comparison stats
                 stats.update(comparison_stats)
 
             results[image_name][model_name] = stats
-            
+
     # Write all results to Excel
     write_results_to_xlsx(results)
 
