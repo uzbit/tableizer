@@ -56,17 +56,8 @@ class TableBallPainter extends CustomPainter {
         print('  Ball $i: ${ballPositions[i]}');
       }
 
-      // Apply 90° rotation to ball positions if orientation is LONG_SIDE
-      // ShotStudio displays table in portrait orientation, but LONG_SIDE captures
-      // have the table appearing more horizontal, so we rotate coordinates to match
-      if (tableDetectionResult!.orientation == 'LONG_SIDE') {
-        print('[TABLE_BALL_PAINTER] Applying 90° clockwise rotation for LONG_SIDE orientation');
-        ballPositions = ballPositions.map((pos) {
-          // Rotate 90° clockwise: (x, y) -> (y, width - x)
-          return Offset(pos.dy, originalSize.width - pos.dx);
-        }).toList();
-        print('[TABLE_BALL_PAINTER] Ball positions after rotation: $ballPositions');
-      }
+      // Note: Rotation for LONG_SIDE is handled by C++ in transformPointsUsingQuad
+      // via the perspective homography, so no Dart-side rotation is needed.
 
       // Rotation was already applied during normalization, so use rotation=0
       // and use the post-rotation original image size

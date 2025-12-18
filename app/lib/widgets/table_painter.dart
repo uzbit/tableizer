@@ -13,8 +13,8 @@ class TablePainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     if (quadPoints.isEmpty) return;
 
-    // Green for SHORT_SIDE orientation, red for all others
-    final Color quadColor = orientation == 'SHORT_SIDE'
+    // Green for valid orientations (SHORT_SIDE, TOP_DOWN, LONG_SIDE), red for OTHER
+    final Color quadColor = (orientation == 'SHORT_SIDE' || orientation == 'TOP_DOWN' || orientation == 'LONG_SIDE')
         ? Colors.green
         : Colors.red;
 

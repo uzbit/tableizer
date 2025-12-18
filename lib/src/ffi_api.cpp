@@ -1,5 +1,6 @@
 #include "ffi_api.hpp"
 
+#include <chrono>
 #include <opencv2/opencv.hpp>
 
 #include "ball_detection.hpp"
@@ -13,7 +14,7 @@
 
 // Table detection constants
 #define CELL_SIZE 10
-#define DELTAE_THRESH 40.0
+#define DELTAE_THRESH 20.0
 #define RESIZE_MAX_SIZE 800
 
 // Detection thresholds
@@ -150,8 +151,7 @@ const char* detect_table_bgra(const unsigned char* imageBytes, int width, int he
                               int channelFormat) {
     static std::string resultStr;
     try {
-        LOGI("[detect_table_bgra] Input: %dx%d, stride: %d, channelFormat: %d", width, height,
-             stride, channelFormat);
+        auto totalStart = std::chrono::high_resolution_clock::now();
 
         cv::Mat inputImage(height, width, CV_8UC4, (void*)imageBytes, stride);
         if (inputImage.empty()) {
@@ -163,19 +163,20 @@ const char* detect_table_bgra(const unsigned char* imageBytes, int width, int he
         // Convert to BGRA if needed (channelFormat: 0=BGRA, 1=RGBA)
         cv::Mat bgraImageUnrotated;
         if (channelFormat == 1) {
-            // Input is RGBA, convert to BGRA
-            LOGI("[detect_table_bgra] Converting RGBA to BGRA");
             cv::cvtColor(inputImage, bgraImageUnrotated, cv::COLOR_RGBA2BGRA);
         } else {
-            // Input is already BGRA
             bgraImageUnrotated = inputImage;
         }
 
+        auto detectStart = std::chrono::high_resolution_clock::now();
         TableDetector tableDetector(RESIZE_MAX_SIZE, CELL_SIZE, DELTAE_THRESH);
         cv::Mat cellularMask, tableDetection;
         tableDetector.detect(bgraImageUnrotated, cellularMask, tableDetection, 0);
+        auto detectEnd = std::chrono::high_resolution_clock::now();
 
+        auto quadStart = std::chrono::high_resolution_clock::now();
         std::vector<cv::Point2f> quadPoints = tableDetector.getQuadFromMask(cellularMask);
+        auto quadEnd = std::chrono::high_resolution_clock::now();
 
         float scaleX = (float)bgraImageUnrotated.cols / tableDetection.cols;
         float scaleY = (float)bgraImageUnrotated.rows / tableDetection.rows;
@@ -250,30 +251,14 @@ const char* detect_table_bgra(const unsigned char* imageBytes, int width, int he
         }
         json += "}";
 
-        // Add mask to JSON response if available
-        if (!cellularMask.empty()) {
-            try {
-                // Scale mask to full resolution
-                cv::Mat scaledMask;
-                cv::resize(cellularMask, scaledMask,
-                           cv::Size(bgraImageUnrotated.cols, bgraImageUnrotated.rows), 0, 0,
-                           cv::INTER_NEAREST);
-
-                // Encode mask to base64
-                std::string maskBase64 = Base64Utils::encodeMat(scaledMask);
-                json += ", \"mask\": {";
-                json += "\"width\": " + std::to_string(scaledMask.cols) + ", ";
-                json += "\"height\": " + std::to_string(scaledMask.rows) + ", ";
-                json += "\"data\": \"" + maskBase64 + "\"";
-                json += "}";
-                LOGI("[detect_table_bgra] Added mask to response: %dx%d", scaledMask.cols,
-                     scaledMask.rows);
-            } catch (const std::exception& e) {
-                LOGE("[detect_table_bgra] Failed to encode mask: %s", e.what());
-            }
-        }
-
+        // Note: Mask encoding removed for performance - mask only needed for ball detection
         json += "}";
+
+        auto totalEnd = std::chrono::high_resolution_clock::now();
+        auto detectMs = std::chrono::duration_cast<std::chrono::milliseconds>(detectEnd - detectStart).count();
+        auto quadMs = std::chrono::duration_cast<std::chrono::milliseconds>(quadEnd - quadStart).count();
+        auto totalMs = std::chrono::duration_cast<std::chrono::milliseconds>(totalEnd - totalStart).count();
+        LOGI("[TIMING] detect: detector=%lldms quad=%lldms total=%lldms (resize=%d)", detectMs, quadMs, totalMs, RESIZE_MAX_SIZE);
 
 #if DEBUG_OUTPUT
 
@@ -414,10 +399,10 @@ const char* normalize_image_bgra(const unsigned char* inputBytes, int inputWidth
     static std::string resultStr;
 
     try {
-        LOGI("[normalize_image_bgra] Input: %dx%d, stride: %d, rotation: %d, channelFormat: %d",
-             inputWidth, inputHeight, inputStride, rotationDegrees, channelFormat);
+        auto totalStart = std::chrono::high_resolution_clock::now();
 
         // Create Mat from input bytes
+        auto matStart = std::chrono::high_resolution_clock::now();
         cv::Mat inputImage(inputHeight, inputWidth, CV_8UC4, (void*)inputBytes, inputStride);
         if (inputImage.empty()) {
             LOGE("[normalize_image_bgra] Failed to create Mat from input bytes");
@@ -428,15 +413,14 @@ const char* normalize_image_bgra(const unsigned char* inputBytes, int inputWidth
         // Convert to BGRA if needed (channelFormat: 0=BGRA, 1=RGBA)
         cv::Mat bgraInputImage;
         if (channelFormat == 1) {
-            // Input is RGBA, convert to BGRA
-            LOGI("[normalize_image_bgra] Converting RGBA to BGRA");
             cv::cvtColor(inputImage, bgraInputImage, cv::COLOR_RGBA2BGRA);
         } else {
-            // Input is already BGRA
             bgraInputImage = inputImage;
         }
+        auto matEnd = std::chrono::high_resolution_clock::now();
 
         // Apply rotation if needed
+        auto rotateStart = std::chrono::high_resolution_clock::now();
         cv::Mat rotatedImage;
         bool wasRotated = false;
         int rotatedWidth = inputWidth;
@@ -460,17 +444,12 @@ const char* normalize_image_bgra(const unsigned char* inputBytes, int inputWidth
         } else {
             rotatedImage = bgraInputImage;
         }
-
-        LOGI("[normalize_image_bgra] After rotation: %dx%d, wasRotated: %s", rotatedWidth,
-             rotatedHeight, wasRotated ? "true" : "false");
+        auto rotateEnd = std::chrono::high_resolution_clock::now();
 
         // Calculate 16:9 landscape canvas dimensions
-        // Use the larger dimension as the height reference
         const double TARGET_ASPECT_RATIO = 16.0 / 9.0;
         int canvasHeight = std::max(rotatedWidth, rotatedHeight);
         int canvasWidth = static_cast<int>(std::round(canvasHeight * TARGET_ASPECT_RATIO));
-
-        LOGI("[normalize_image_bgra] Canvas dimensions: %dx%d", canvasWidth, canvasHeight);
 
         // Check if output buffer is large enough
         int requiredSize = canvasWidth * canvasHeight * 4;
@@ -481,34 +460,44 @@ const char* normalize_image_bgra(const unsigned char* inputBytes, int inputWidth
             return resultStr.c_str();
         }
 
-        // Create black canvas (BGRA format)
+        // Create black canvas and copy image
+        auto canvasStart = std::chrono::high_resolution_clock::now();
         cv::Mat canvas(canvasHeight, canvasWidth, CV_8UC4, cv::Scalar(0, 0, 0, 255));
-
-        // Calculate centered position
         int offsetX = (canvasWidth - rotatedWidth) / 2;
         int offsetY = (canvasHeight - rotatedHeight) / 2;
-
-        LOGI("[normalize_image_bgra] Image offset on canvas: (%d, %d)", offsetX, offsetY);
-
-        // Copy rotated image onto canvas at centered position
         cv::Rect roi(offsetX, offsetY, rotatedWidth, rotatedHeight);
         rotatedImage.copyTo(canvas(roi));
+        auto canvasEnd = std::chrono::high_resolution_clock::now();
 
-        // Convert final canvas from BGRA to RGBA for a consistent pipeline output
+        // Convert final canvas from BGRA to RGBA
+        auto convertStart = std::chrono::high_resolution_clock::now();
         cv::Mat rgbaCanvas;
         cv::cvtColor(canvas, rgbaCanvas, cv::COLOR_BGRA2RGBA);
+        auto convertEnd = std::chrono::high_resolution_clock::now();
 
         // Copy canvas data to output buffer
+        auto copyStart = std::chrono::high_resolution_clock::now();
         if (rgbaCanvas.isContinuous()) {
             std::memcpy(outputBytes, rgbaCanvas.data, requiredSize);
         } else {
-            // Copy row by row if not continuous
             for (int y = 0; y < canvasHeight; ++y) {
                 std::memcpy(outputBytes + y * canvasWidth * 4, rgbaCanvas.ptr(y), canvasWidth * 4);
             }
         }
+        auto copyEnd = std::chrono::high_resolution_clock::now();
 
-        LOGI("[normalize_image_bgra] Normalization complete");
+        auto totalEnd = std::chrono::high_resolution_clock::now();
+
+        // Log timing
+        auto matMs = std::chrono::duration_cast<std::chrono::milliseconds>(matEnd - matStart).count();
+        auto rotateMs = std::chrono::duration_cast<std::chrono::milliseconds>(rotateEnd - rotateStart).count();
+        auto canvasMs = std::chrono::duration_cast<std::chrono::milliseconds>(canvasEnd - canvasStart).count();
+        auto convertMs = std::chrono::duration_cast<std::chrono::milliseconds>(convertEnd - convertStart).count();
+        auto copyMs = std::chrono::duration_cast<std::chrono::milliseconds>(copyEnd - copyStart).count();
+        auto totalMs = std::chrono::duration_cast<std::chrono::milliseconds>(totalEnd - totalStart).count();
+
+        LOGI("[TIMING] normalize: mat=%lldms rotate=%lldms canvas=%lldms convert=%lldms copy=%lldms total=%lldms (%dx%d canvas)",
+             matMs, rotateMs, canvasMs, convertMs, copyMs, totalMs, canvasWidth, canvasHeight);
 
         // Build JSON result with metadata
         std::string json = "{";

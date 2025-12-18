@@ -77,12 +77,28 @@ class TableDetectionService {
     _detectionsController.close();
   }
 
+  // Frame rate debugging
+  int _framesReceived = 0;
+  int _framesSent = 0;
+  DateTime _lastLogTime = DateTime.now();
+
   Future<void> processImage(AnalysisImage image) async {
+    _framesReceived++;
+
+    // Log every second
+    final now = DateTime.now();
+    if (now.difference(_lastLogTime).inSeconds >= 1) {
+      _framesReceived = 0;
+      _framesSent = 0;
+      _lastLogTime = now;
+    }
+
     if (_sendPort == null || !_isReady || _isPaused) {
       // Drop frame if paused, isolate is busy, or not ready
       return;
     }
     _isReady = false; // Close the gate
+    _framesSent++;
     _sendPort!.send(image);
   }
 

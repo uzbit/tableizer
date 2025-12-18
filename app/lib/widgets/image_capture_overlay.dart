@@ -139,7 +139,6 @@ class ImageCaptureOverlay extends StatelessWidget {
                           width: capturedImageSize!.width.toInt(),
                           height: capturedImageSize!.height.toInt(),
                           rotation: capturedRotation!,
-                          maskBytes: tableDetectionResult?.maskBytes,
                         ),
                       ),
                       // Detection overlays (both balls and table)
@@ -282,20 +281,18 @@ class _BgraImageWidget extends StatelessWidget {
   final int width;
   final int height;
   final InputAnalysisImageRotation rotation;
-  final Uint8List? maskBytes;
 
   const _BgraImageWidget({
     required this.bgraBytes,
     required this.width,
     required this.height,
     required this.rotation,
-    this.maskBytes,
   });
 
   @override
   Widget build(BuildContext context) {
     return FutureBuilder<ui.Image>(
-      future: _createAndMaskImage(),
+      future: _createImageFromBgra(),
       builder: (context, snapshot) {
         if (snapshot.hasData) {
           // Apply rotation transform to match camera orientation
@@ -335,17 +332,9 @@ class _BgraImageWidget extends StatelessWidget {
     );
   }
 
-  Future<ui.Image> _createAndMaskImage() async {
-    final image = await _createImageFromBgra(bgraBytes, width, height);
-    if (maskBytes != null) {
-      return await _applyMaskToImage(image, maskBytes!);
-    }
-    return image;
-  }
-
-  Future<ui.Image> _createImageFromBgra(Uint8List bgra, int width, int height) async {
-    print('[_BgraImageWidget] Creating image from ${bgra.length} bytes, size: ${width}x$height');
-    print('[_BgraImageWidget] First 16 bytes: ${bgra.sublist(0, 16)}');
+  Future<ui.Image> _createImageFromBgra() async {
+    print('[_BgraImageWidget] Creating image from ${bgraBytes.length} bytes, size: ${width}x$height');
+    print('[_BgraImageWidget] First 16 bytes: ${bgraBytes.sublist(0, 16)}');
 
     // The native pipeline is now standardized to always output RGBA.
     // On iOS, however, it seems the channels are BGRA.
@@ -354,7 +343,7 @@ class _BgraImageWidget extends StatelessWidget {
 
     final completer = Completer<ui.Image>();
     ui.decodeImageFromPixels(
-      bgra, // variable name is now a misnomer, but we'll leave it
+      bgraBytes,
       width,
       height,
       pixelFormat,
@@ -363,32 +352,6 @@ class _BgraImageWidget extends StatelessWidget {
       },
     );
     return completer.future;
-  }
-
-  Future<ui.Image> _applyMaskToImage(ui.Image image, Uint8List maskPngBytes) async {
-    // Decode mask PNG to image
-    final maskCompleter = Completer<ui.Image>();
-    ui.decodeImageFromList(maskPngBytes, (ui.Image maskImage) {
-      maskCompleter.complete(maskImage);
-    });
-    final maskImage = await maskCompleter.future;
-
-    // Create a canvas to composite the image with the mask
-    final recorder = ui.PictureRecorder();
-    final canvas = Canvas(recorder);
-    final paint = Paint();
-
-    // Draw the original image
-    canvas.drawImage(image, Offset.zero, paint);
-
-    // Apply mask using destination-in blend mode (keeps only pixels where mask is opaque)
-    paint.blendMode = BlendMode.dstIn;
-    canvas.drawImage(maskImage, Offset.zero, paint);
-
-    final picture = recorder.endRecording();
-    final composited = await picture.toImage(image.width, image.height);
-
-    return composited;
   }
 }
 

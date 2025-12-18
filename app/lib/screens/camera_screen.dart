@@ -163,7 +163,7 @@ class CameraScreenState extends State<CameraScreen> with RouteAware {
         },
         imageAnalysisConfig: AnalysisConfig(
           androidOptions: const AndroidAnalysisOptions.bgra8888(width: 1280),
-          maxFramesPerSecond: 30,
+          maxFramesPerSecond: 60,
         ),
         previewDecoratorBuilder: (state, preview) {
           return AnimatedBuilder(

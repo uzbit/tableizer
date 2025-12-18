@@ -72,6 +72,7 @@ void tableDetectionIsolateEntry(List<dynamic> args) async {
     if (message is AnalysisImage) {
       message.when(bgra8888: (image) {
         Pointer<Utf8> resultPtr = nullptr;
+        final totalStopwatch = Stopwatch()..start();
 
         try {
           final plane = image.planes[0];
@@ -95,9 +96,12 @@ void tableDetectionIsolateEntry(List<dynamic> args) async {
           }
 
           // Copy original image bytes to input buffer
+          final inputCopyStopwatch = Stopwatch()..start();
           inputPtr.asTypedList(originalBytes.length).setAll(0, originalBytes);
+          inputCopyStopwatch.stop();
 
           // Call C++ normalize function
+          final normalizeStopwatch = Stopwatch()..start();
           final normalizeResult = normalizeImageBgra(
             inputPtr,
             originalWidth,
@@ -108,6 +112,7 @@ void tableDetectionIsolateEntry(List<dynamic> args) async {
             3840 * 2160 * 4, // output buffer size
             channelFormat,
           );
+          normalizeStopwatch.stop();
 
           if (normalizeResult == nullptr) {
             sendPort.send(true);
@@ -143,6 +148,7 @@ void tableDetectionIsolateEntry(List<dynamic> args) async {
           }
 
           // Call table detection with normalized image (output is always BGRA after normalization)
+          final detectStopwatch = Stopwatch()..start();
           resultPtr = detectTableBgra(
             outputPtr,
             normalizedWidth,
@@ -150,6 +156,7 @@ void tableDetectionIsolateEntry(List<dynamic> args) async {
             normalizedStride,
             1, // After normalization, output is always RGBA
           );
+          detectStopwatch.stop();
 
           if (resultPtr != nullptr) {
             final jsonResult = resultPtr.toDartString();
@@ -189,10 +196,20 @@ void tableDetectionIsolateEntry(List<dynamic> args) async {
               }
 
               // Copy normalized buffer for reuse in ball detection
+              final outputCopyStopwatch = Stopwatch()..start();
               final int normalizedBufferSize = normalizedWidth * normalizedHeight * 4;
               final Uint8List normalizedBytesCopy = Uint8List.fromList(
                 outputPtr.asTypedList(normalizedBufferSize)
               );
+              outputCopyStopwatch.stop();
+
+              totalStopwatch.stop();
+              // print('[TIMING] isolate: inputCopy=${inputCopyStopwatch.elapsedMilliseconds}ms '
+              //       'normalize=${normalizeStopwatch.elapsedMilliseconds}ms '
+              //       'detect=${detectStopwatch.elapsedMilliseconds}ms '
+              //       'outputCopy=${outputCopyStopwatch.elapsedMilliseconds}ms '
+              //       'total=${totalStopwatch.elapsedMilliseconds}ms '
+              //       '(${normalizedWidth}x${normalizedHeight} canvas, ${(normalizedBufferSize / 1024 / 1024).toStringAsFixed(1)}MB)');
 
               // Send result with points in original image coordinates
               sendPort.send(TableDetectionResult(
