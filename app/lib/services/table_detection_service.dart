@@ -40,6 +40,7 @@ class TableDetectionService {
   bool _isReady = true; // Gate to control frame processing
   bool _isInitialized = false;
   bool _isPaused = false; // Control whether to process frames
+  bool _captureRequested = false; // Flag to request normalized buffer copy
 
   Future<void> initialize() async {
     if (_isInitialized) return;
@@ -99,7 +100,17 @@ class TableDetectionService {
     }
     _isReady = false; // Close the gate
     _framesSent++;
-    _sendPort!.send(image);
+
+    // Send image with capture flag
+    final bool shouldCapture = _captureRequested;
+    _captureRequested = false; // Reset flag
+    _sendPort!.send({'image': image, 'capture': shouldCapture});
+  }
+
+  /// Request that the next processed frame should copy its normalized buffer
+  void requestCapture() {
+    _captureRequested = true;
+    print('[TABLE_SERVICE] Capture requested - next frame will copy normalized buffer');
   }
 
   void pause() {

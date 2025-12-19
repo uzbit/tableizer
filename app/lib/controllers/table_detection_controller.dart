@@ -20,7 +20,7 @@ class TableDetectionController extends ChangeNotifier {
   TableDetectionResult? _tableDetectionResult;  // Store latest table detection result
 
   // Alpha filter settings for quad point smoothing
-  static const double _quadAlpha = 0.5;  // _quadAlpha% new, 100-_quadAlpha% previous (smooth)
+  static const double _quadAlpha = 0.9;  // _quadAlpha% new, 100-_quadAlpha% previous (smooth)
 
   // Getters
   List<Offset> get quadPoints => _filteredQuadPoints.isNotEmpty ? _filteredQuadPoints : _quadPoints;
@@ -68,6 +68,11 @@ class TableDetectionController extends ChangeNotifier {
 
   void resume() {
     _tableDetectionService.resume();
+  }
+
+  /// Request that the next frame should capture its normalized buffer for ball detection
+  void requestCapture() {
+    _tableDetectionService.requestCapture();
   }
 
   // Apply alpha filter to smooth quad point jitter

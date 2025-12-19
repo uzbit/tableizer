@@ -89,6 +89,8 @@ class CameraScreenState extends State<CameraScreen> with RouteAware {
   void _onCaptureFrame() {
     // Request capture of next analysis frame
     _cameraController.requestFrameCapture();
+    // Request table detection to copy normalized buffer for ball detection
+    _tableDetectionController.requestCapture();
   }
 
   void _onAcceptResults(ui.Size capturedImageSize, InputAnalysisImageRotation rotation) {
@@ -171,6 +173,7 @@ class CameraScreenState extends State<CameraScreen> with RouteAware {
             builder: (context, child) {
               return CameraPreviewWidget(
                 tableDetectionResult: _tableDetectionController.tableDetectionResult,
+                filteredQuadPoints: _tableDetectionController.quadPoints,
                 fps: _tableDetectionController.fps,
               );
             },

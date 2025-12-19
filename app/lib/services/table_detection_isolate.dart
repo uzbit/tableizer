@@ -69,8 +69,17 @@ void tableDetectionIsolateEntry(List<dynamic> args) async {
   final int channelFormat = Platform.isIOS ? 1 : 0;
 
   receivePort.listen((dynamic message) {
-    if (message is AnalysisImage) {
-      message.when(bgra8888: (image) {
+    // Message is now a Map with 'image' and 'capture' keys
+    if (message is Map) {
+      final AnalysisImage? analysisImage = message['image'] as AnalysisImage?;
+      final bool captureRequested = message['capture'] as bool? ?? false;
+
+      if (analysisImage == null) {
+        sendPort.send(true);
+        return;
+      }
+
+      analysisImage.when(bgra8888: (image) {
         Pointer<Utf8> resultPtr = nullptr;
         final totalStopwatch = Stopwatch()..start();
 
@@ -195,21 +204,19 @@ void tableDetectionIsolateEntry(List<dynamic> args) async {
                 }
               }
 
-              // Copy normalized buffer for reuse in ball detection
-              final outputCopyStopwatch = Stopwatch()..start();
+              // Only copy normalized buffer if capture was requested (saves ~11.7MB copy per frame)
+              Uint8List? normalizedBytesCopy;
               final int normalizedBufferSize = normalizedWidth * normalizedHeight * 4;
-              final Uint8List normalizedBytesCopy = Uint8List.fromList(
-                outputPtr.asTypedList(normalizedBufferSize)
-              );
-              outputCopyStopwatch.stop();
+              if (captureRequested) {
+                final outputCopyStopwatch = Stopwatch()..start();
+                normalizedBytesCopy = Uint8List.fromList(
+                  outputPtr.asTypedList(normalizedBufferSize)
+                );
+                outputCopyStopwatch.stop();
+                print('[TABLE_ISOLATE] Captured normalized buffer: ${(normalizedBufferSize / 1024 / 1024).toStringAsFixed(1)}MB in ${outputCopyStopwatch.elapsedMilliseconds}ms');
+              }
 
               totalStopwatch.stop();
-              // print('[TIMING] isolate: inputCopy=${inputCopyStopwatch.elapsedMilliseconds}ms '
-              //       'normalize=${normalizeStopwatch.elapsedMilliseconds}ms '
-              //       'detect=${detectStopwatch.elapsedMilliseconds}ms '
-              //       'outputCopy=${outputCopyStopwatch.elapsedMilliseconds}ms '
-              //       'total=${totalStopwatch.elapsedMilliseconds}ms '
-              //       '(${normalizedWidth}x${normalizedHeight} canvas, ${(normalizedBufferSize / 1024 / 1024).toStringAsFixed(1)}MB)');
 
               // Send result with points in original image coordinates
               sendPort.send(TableDetectionResult(

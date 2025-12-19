@@ -7,11 +7,13 @@ import '../models/table_detection_result.dart';
 
 class CameraPreviewWidget extends StatelessWidget {
   final TableDetectionResult? tableDetectionResult;
+  final List<Offset> filteredQuadPoints;
   final double fps;
 
   const CameraPreviewWidget({
     super.key,
     required this.tableDetectionResult,
+    required this.filteredQuadPoints,
     required this.fps,
   });
 
@@ -52,15 +54,16 @@ class CameraPreviewWidget extends StatelessWidget {
       fit: StackFit.expand,
       children: [
         // Table detection overlay
-        if (tableDetectionResult != null)
+        if (tableDetectionResult != null && filteredQuadPoints.isNotEmpty)
           LayoutBuilder(builder: (context, constraints) {
             final previewSize = constraints.biggest;
             final result = tableDetectionResult!;
 
+            // Use filtered quad points (alpha-smoothed) instead of raw points
             // Points are in rotated image space (before padding)
             // Scale directly from original image size to display size
             final scaledPoints = _scalePoints(
-              points: result.points,
+              points: filteredQuadPoints,
               sourceSize: result.originalImageSize ?? result.imageSize,
               targetSize: previewSize,
               fit: BoxFit.contain,

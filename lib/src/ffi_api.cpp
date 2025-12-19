@@ -13,7 +13,7 @@
 #include "utilities.hpp"
 
 // Table detection constants
-#define CELL_SIZE 10
+#define CELL_SIZE 5
 #define DELTAE_THRESH 20.0
 #define RESIZE_MAX_SIZE 800
 
@@ -255,10 +255,14 @@ const char* detect_table_bgra(const unsigned char* imageBytes, int width, int he
         json += "}";
 
         auto totalEnd = std::chrono::high_resolution_clock::now();
-        auto detectMs = std::chrono::duration_cast<std::chrono::milliseconds>(detectEnd - detectStart).count();
-        auto quadMs = std::chrono::duration_cast<std::chrono::milliseconds>(quadEnd - quadStart).count();
-        auto totalMs = std::chrono::duration_cast<std::chrono::milliseconds>(totalEnd - totalStart).count();
-        LOGI("[TIMING] detect: detector=%lldms quad=%lldms total=%lldms (resize=%d)", detectMs, quadMs, totalMs, RESIZE_MAX_SIZE);
+        auto detectMs =
+            std::chrono::duration_cast<std::chrono::milliseconds>(detectEnd - detectStart).count();
+        auto quadMs =
+            std::chrono::duration_cast<std::chrono::milliseconds>(quadEnd - quadStart).count();
+        auto totalMs =
+            std::chrono::duration_cast<std::chrono::milliseconds>(totalEnd - totalStart).count();
+        LOGI("[TIMING] detect: detector=%lldms quad=%lldms total=%lldms (resize=%d)", detectMs,
+             quadMs, totalMs, RESIZE_MAX_SIZE);
 
 #if DEBUG_OUTPUT
 
@@ -489,15 +493,24 @@ const char* normalize_image_bgra(const unsigned char* inputBytes, int inputWidth
         auto totalEnd = std::chrono::high_resolution_clock::now();
 
         // Log timing
-        auto matMs = std::chrono::duration_cast<std::chrono::milliseconds>(matEnd - matStart).count();
-        auto rotateMs = std::chrono::duration_cast<std::chrono::milliseconds>(rotateEnd - rotateStart).count();
-        auto canvasMs = std::chrono::duration_cast<std::chrono::milliseconds>(canvasEnd - canvasStart).count();
-        auto convertMs = std::chrono::duration_cast<std::chrono::milliseconds>(convertEnd - convertStart).count();
-        auto copyMs = std::chrono::duration_cast<std::chrono::milliseconds>(copyEnd - copyStart).count();
-        auto totalMs = std::chrono::duration_cast<std::chrono::milliseconds>(totalEnd - totalStart).count();
+        auto matMs =
+            std::chrono::duration_cast<std::chrono::milliseconds>(matEnd - matStart).count();
+        auto rotateMs =
+            std::chrono::duration_cast<std::chrono::milliseconds>(rotateEnd - rotateStart).count();
+        auto canvasMs =
+            std::chrono::duration_cast<std::chrono::milliseconds>(canvasEnd - canvasStart).count();
+        auto convertMs =
+            std::chrono::duration_cast<std::chrono::milliseconds>(convertEnd - convertStart)
+                .count();
+        auto copyMs =
+            std::chrono::duration_cast<std::chrono::milliseconds>(copyEnd - copyStart).count();
+        auto totalMs =
+            std::chrono::duration_cast<std::chrono::milliseconds>(totalEnd - totalStart).count();
 
-        LOGI("[TIMING] normalize: mat=%lldms rotate=%lldms canvas=%lldms convert=%lldms copy=%lldms total=%lldms (%dx%d canvas)",
-             matMs, rotateMs, canvasMs, convertMs, copyMs, totalMs, canvasWidth, canvasHeight);
+        LOGI(
+            "[TIMING] normalize: mat=%lldms rotate=%lldms canvas=%lldms convert=%lldms copy=%lldms "
+            "total=%lldms (%dx%d canvas)",
+            matMs, rotateMs, canvasMs, convertMs, copyMs, totalMs, canvasWidth, canvasHeight);
 
         // Build JSON result with metadata
         std::string json = "{";
