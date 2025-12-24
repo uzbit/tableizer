@@ -26,15 +26,20 @@ The training pipeline:
 
 ### Quick Start
 
-```bash
-cd python
+1. Edit the `CONFIG` dict in `model_table.py` to point to your local dataset:
+   ```python
+   CONFIG = {
+       "srcImgDir": "data/my_dataset/images",  # Path to your images
+       "srcLblDir": "data/my_dataset/labels",  # Path to your YOLO labels
+       ...
+   }
+   ```
 
-# Train a new model with default settings
-python model_table.py
-
-# Train with custom config
-python model_table.py --config path/to/config.json
-```
+2. Run training:
+   ```bash
+   cd python
+   python model_table.py
+   ```
 
 ### Step-by-Step Guide
 
@@ -138,20 +143,12 @@ tableizer/my_model/
 For mobile deployment, export to ONNX format:
 
 ```bash
-# From command line
-yolo export model=tableizer/my_model/weights/best.pt \
-    format=onnx \
-    device=cpu \
-    imgsz=1280 \
-    simplify=True \
-    dynamic=False \
-    opset=17 \
-    half=False
+yolo export model=tableizer/expN/weights/best.pt format=onnx device=cpu imgsz=1280 simplify=True dynamic=False opset=17 half=False
 ```
 
 Copy the model to the Flutter app:
 ```bash
-cp tableizer/my_model/weights/best.onnx ../app/assets/detection_model.onnx
+cp tableizer/expN/weights/best.onnx ../app/assets/detection_model.onnx
 ```
 
 ### Hyperparameter Tuning

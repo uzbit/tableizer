@@ -2,6 +2,8 @@
 
 A mobile application combining computer vision and machine learning to detect pool tables, locate ball positions, and map them onto ShotStudio-style overlays.
 
+This project was derived from the [pix2pockets](https://pix2pockets.compute.dtu.dk/) dataset and research as a starting point for ball detection training.
+
 ## Overview
 
 Tableizer consists of three main components:
@@ -209,21 +211,42 @@ pip install -r requirements.txt
 
 | Script | Purpose |
 |--------|---------|
-| `python/detect_table.py` | Table detection using C++ FFI or YOLO |
-| `python/detect_transformed_table.py` | Detection on perspective-corrected images |
-| `python/tableizer_ffi.py` | Python FFI bindings |
-| `python/transform_dataset.py` | Dataset augmentation pipeline |
+| `python/model_table.py` | **Main training script** - trains YOLO ball detection models |
+| `python/transform_dataset.py` | Dataset transformation - perspective correction and label mapping |
+| `python/detect_table.py` | Table detection testing using C++ FFI |
+| `python/tableizer_ffi.py` | Python FFI bindings for the C++ library |
 
 ### Training Models
 
-YOLO models are trained using Ultralytics:
+Train a new YOLO model using `model_table.py`:
+
+1. Edit the `CONFIG` dict in `model_table.py` to point to your local dataset:
+   ```python
+   CONFIG = {
+       "srcImgDir": "data/my_dataset/images",  # Your images
+       "srcLblDir": "data/my_dataset/labels",  # Your YOLO labels
+       ...
+   }
+   ```
+
+2. Run training:
+   ```bash
+   cd python
+   python model_table.py
+   ```
+
+Export trained model to ONNX for mobile deployment:
 
 ```bash
-cd python
-python -c "from ultralytics import YOLO; model = YOLO('yolov8n.pt'); model.train(data='path/to/data.yaml', epochs=100)"
+yolo export model=tableizer/expN/weights/best.pt format=onnx device=cpu imgsz=1280 simplify=True dynamic=False opset=17 half=False
+
+# Copy to Flutter app
+cp tableizer/expN/weights/best.onnx ../app/assets/detection_model.onnx
 ```
 
-Trained models are stored in `tableizer/combined4/` (current production model).
+Trained models are stored in `tableizer/` (current production model: `combined4`).
+
+See `python/README.md` for detailed training instructions.
 
 ## App Architecture
 
